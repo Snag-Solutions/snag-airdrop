@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+pragma solidity 0.8.20;
 
 import {LinearStake} from './LinearStake.sol';
 import {SnagAirdropClaim} from './SnagAirdropClaim.sol';
@@ -10,58 +10,73 @@ import {IBaseStake} from './interfaces/IBaseStake.sol';
 import {IERC165} from '@openzeppelin/contracts/utils/introspection/IERC165.sol';
 import {ISnagAirdropRouter} from './interfaces/ISnagAirdropRouter.sol';
 
-/// @notice Central router + factory for all airdrops.
+/// @title SnagAirdropRouter
+/// @author Snag Protocol
+/// @notice Central router and factory for deploying and managing airdrops
+/// @dev This contract serves as the main entry point for creating new airdrops
+/// and provides administrative functions for managing existing ones.
 contract SnagAirdropRouter is Context, ISnagAirdropRouter {
     /// @dev airdropId → claim contract
     mapping(bytes32 => address) public claimContractById;
     /// @dev airdropId → admin address
     mapping(bytes32 => address) public airdropAdmin;
 
-    /// @notice Deploy a new airdrop + optional staking.
-     function deployClaimContract(
+    /// @inheritdoc ISnagAirdropRouter
+    function deployClaimContract(
         bytes32 id,
         bytes32 root,
-        address assetAddress,
-        address admin,
         uint256 multiplier,
-        bool withStaking,
+        address assetAddress,
         address overrideStakingAddress,
+        address admin,
+        bool withStaking,
         uint32 minLockupDuration,
         uint32 minLockupDurationForMultiplier
     ) external returns (address) {
         if (claimContractById[id] != address(0)) revert IdExists();
         if (admin == address(0)) revert ZeroAdmin();
 
+        // decide staking address
         address stakingAddr;
         if (withStaking) {
             if (overrideStakingAddress != address(0)) {
                 if (
-                    !IERC165(overrideStakingAddress).supportsInterface(type(IBaseStake).interfaceId)
+                    !IERC165(overrideStakingAddress).supportsInterface(
+                        type(IBaseStake).interfaceId
+                    )
                 ) revert InvalidStakingAddress();
                 stakingAddr = overrideStakingAddress;
             } else {
                 stakingAddr = address(new LinearStake(assetAddress));
             }
         }
-
         SnagAirdropClaim claimC = new SnagAirdropClaim(
             root,
             assetAddress,
             stakingAddr,
-            multiplier,
             minLockupDuration,
-            minLockupDurationForMultiplier
+            minLockupDurationForMultiplier,
+            multiplier
         );
 
         claimContractById[id] = address(claimC);
         airdropAdmin[id] = admin;
-        emit ClaimContractDeployed(id, root, address(claimC), stakingAddr, admin);
+
+        emit ClaimContractDeployed(
+            id,
+            root,
+            address(claimC),
+            stakingAddr,
+            admin
+        );
+
         return address(claimC);
     }
 
-    /// @notice User calls to claim + stake once only.
+    /// @inheritdoc ISnagAirdropRouter
     function claim(
         bytes32 id,
+        address beneficiary,
         bytes32[] calldata proof,
         uint256 totalAllocation,
         ISnagAirdropClaim.ClaimOptions calldata o,
@@ -71,7 +86,7 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         if (c == address(0)) revert InvalidId();
 
         (uint256 claimedAmt, uint256 stakedAmt) = SnagAirdropClaim(c).claimFor(
-            _msgSender(),
+            beneficiary,
             id,
             proof,
             totalAllocation,
@@ -81,7 +96,7 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
 
         emit Claimed(
             id,
-            _msgSender(),
+            beneficiary,
             claimedAmt,
             stakedAmt,
             o.percentageToClaim,
@@ -91,13 +106,14 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         );
     }
 
-    // View functions
+    /// @inheritdoc ISnagAirdropRouter
     function getStakingAddress(bytes32 id) external view returns (address) {
         address c = claimContractById[id];
         if (c == address(0)) revert InvalidId();
         return address(SnagAirdropClaim(c).stakingAddress());
     }
 
+    /// @inheritdoc ISnagAirdropRouter
     function getClaimData(
         bytes32 id,
         address account
@@ -110,7 +126,8 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         data.totalStaked = claimContract.totalStaked();
         data.totalBonusTokens = claimContract.totalBonusTokens();
         data.minLockupDuration = claimContract.minLockupDuration();
-        data.minLockupDurationForMultiplier = claimContract.minLockupDurationForMultiplier();
+        data.minLockupDurationForMultiplier = claimContract
+            .minLockupDurationForMultiplier();
         data.multiplier = claimContract.multiplier();
         data.isActive = claimContract.isActive();
         data.isPaused = claimContract.paused();
@@ -123,7 +140,7 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         }
     }
 
-    /// @notice Get staking data for a specific user and airdrop
+    /// @inheritdoc ISnagAirdropRouter
     function getStakingData(
         bytes32 id,
         address account
@@ -142,32 +159,49 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         address stakingAddr = address(SnagAirdropClaim(c).stakingAddress());
         if (stakingAddr != address(0)) {
             IBaseStake stakingContract = IBaseStake(stakingAddr);
-            (stakeIds, claimableAmounts) = stakingContract.claimable(0, account);
+            (stakeIds, claimableAmounts) = stakingContract.claimable(
+                0,
+                account
+            );
             for (uint256 i = 0; i < claimableAmounts.length; i++) {
                 totalClaimable += claimableAmounts[i];
             }
+        } else {
+            stakeIds = new uint256[](0);
+            claimableAmounts = new uint256[](0);
         }
     }
 
     //──────── Admin wrappers ────────────────────────────────────
 
-    function setMultiplier(bytes32 id, uint256 m) external {
+    /// @dev Modifier to ensure only the airdrop admin can call functions
+    /// @param id The airdrop identifier
+    modifier onlyAirdropAdmin(bytes32 id) {
+        if (claimContractById[id] == address(0)) revert InvalidId();
         if (_msgSender() != airdropAdmin[id]) revert NotAirdropAdmin();
+        _;
+    }
+
+    /// @inheritdoc ISnagAirdropRouter
+    function setMultiplier(
+        bytes32 id,
+        uint256 m
+    ) external onlyAirdropAdmin(id) {
         SnagAirdropClaim(claimContractById[id]).setMultiplier(m);
     }
 
-    function endAirdrop(bytes32 id, address to) external {
-        if (_msgSender() != airdropAdmin[id]) revert NotAirdropAdmin();
+    /// @inheritdoc ISnagAirdropRouter
+    function endAirdrop(bytes32 id, address to) external onlyAirdropAdmin(id) {
         SnagAirdropClaim(claimContractById[id]).endAirdrop(to);
     }
 
-    function pause(bytes32 id) external {
-        if (_msgSender() != airdropAdmin[id]) revert NotAirdropAdmin();
+    /// @inheritdoc ISnagAirdropRouter
+    function pause(bytes32 id) external onlyAirdropAdmin(id) {
         SnagAirdropClaim(claimContractById[id]).pause();
     }
 
-    function unpause(bytes32 id) external {
-        if (_msgSender() != airdropAdmin[id]) revert NotAirdropAdmin();
+    /// @inheritdoc ISnagAirdropRouter
+    function unpause(bytes32 id) external onlyAirdropAdmin(id) {
         SnagAirdropClaim(claimContractById[id]).unpause();
     }
 }

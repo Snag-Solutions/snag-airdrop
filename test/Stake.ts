@@ -11,6 +11,7 @@ import {
   getStakeIds,
   claimUnlocked,
   claimUnlockedAndGetAmount,
+  calculateILinearStakeInterfaceId,
 } from "./helpers/shared";
 import {
   verifyStakeCreated,
@@ -333,6 +334,144 @@ describe("LinearStake", function () {
       // Verify no tokens were transferred
       const stakingData = await getStakingData(stake, user.account.address);
       expect(stakingData.totalClaimable).to.equal(0n);
+    });
+
+    it("handles claiming after already claiming everything", async function () {
+      const { user, stakeAsUser, stake, erc20 } = await loadFixture(deployStakeFixture);
+
+      await stakeTokens(stakeAsUser, user.account.address, parseEther("1"), 100);
+
+      // Advance full duration
+      await time.increase(100);
+
+      // First claim - should claim everything
+      const firstClaimAmount = await claimUnlockedAndGetAmount(
+        stakeAsUser,
+        erc20,
+        user.account.address
+      );
+
+      expect(firstClaimAmount).to.equal(parseEther("1"));
+
+      // Second claim - should claim 0
+      const secondClaimAmount = await claimUnlockedAndGetAmount(
+        stakeAsUser,
+        erc20,
+        user.account.address
+      );
+
+      expect(secondClaimAmount).to.equal(0n);
+    });
+
+    it("handles claiming specific stake after already claiming everything", async function () {
+      const { user, stakeAsUser, stake, erc20 } = await loadFixture(deployStakeFixture);
+
+      await stakeTokens(stakeAsUser, user.account.address, parseEther("1"), 100);
+
+      // Get stake IDs
+      const stakeIds = await getStakeIds(stake, user.account.address);
+
+      // Advance full duration
+      await time.increase(100);
+
+      // First claim - should claim everything
+      const firstClaimAmount = await claimUnlockedAndGetAmount(
+        stakeAsUser,
+        erc20,
+        user.account.address,
+        stakeIds[0]
+      );
+
+      expect(firstClaimAmount).to.equal(parseEther("1"));
+
+      // Second claim - should claim 0
+      const secondClaimAmount = await claimUnlockedAndGetAmount(
+        stakeAsUser,
+        erc20,
+        user.account.address,
+        stakeIds[0]
+      );
+
+      expect(secondClaimAmount).to.equal(0n);
+    });
+  });
+
+  describe("ERC165 Interface Support", function () {
+    it("supports ERC165 interface", async function () {
+      const { stake } = await loadFixture(deployStakeFixture);
+      
+      // ERC165 interface ID
+      const erc165InterfaceId = "0x01ffc9a7";
+      
+      const supportsERC165 = await stake.read.supportsInterface([erc165InterfaceId]);
+      expect(supportsERC165).to.be.true;
+    });
+
+    it("does not support unknown interface", async function () {
+      const { stake } = await loadFixture(deployStakeFixture);
+      
+      // Random interface ID
+      const unknownInterfaceId = "0x12345678";
+      
+      const supportsUnknown = await stake.read.supportsInterface([unknownInterfaceId]);
+      expect(supportsUnknown).to.be.false;
+    });
+  });
+
+  describe("Zero Amount Edge Cases", function () {
+    it("handles querying claimable for non-existent stake with zero amount", async function () {
+      const { user, stake } = await loadFixture(deployStakeFixture);
+
+      // Query claimable for a non-existent stake ID
+      const [stakeIds, claimableAmounts] = await stake.read.claimable([
+        999n,
+        user.account.address
+      ]);
+
+      expect(stakeIds.length).to.equal(1);
+      expect(claimableAmounts.length).to.equal(1);
+      expect(stakeIds[0]).to.equal(999n);
+      expect(claimableAmounts[0]).to.equal(0n);
+    });
+
+    it("handles querying claimable for empty stake set", async function () {
+      const { user, stake } = await loadFixture(deployStakeFixture);
+
+      // Query claimable for user with no stakes
+      const [stakeIds, claimableAmounts] = await stake.read.claimable([
+        0n,
+        user.account.address
+      ]);
+
+      expect(stakeIds.length).to.equal(0);
+      expect(claimableAmounts.length).to.equal(0);
+    });
+
+    it("handles getStakeIds for user with no stakes", async function () {
+      const { user, stake } = await loadFixture(deployStakeFixture);
+
+      // Get stake IDs for user with no stakes
+      const stakeIds = await getStakeIds(stake, user.account.address);
+      expect(stakeIds.length).to.equal(0);
+    });
+
+    it("handles querying claimable for multiple non-existent stakes", async function () {
+      const { user, stake } = await loadFixture(deployStakeFixture);
+
+      // Create a real stake first
+      const { stakeAsUser } = await loadFixture(deployStakeFixture);
+      await stakeTokens(stakeAsUser, user.account.address, parseEther("1"), 100);
+
+      // Query claimable for all stakes (should include the real one)
+      const [stakeIds, claimableAmounts] = await stake.read.claimable([
+        0n,
+        user.account.address
+      ]);
+
+      expect(stakeIds.length).to.equal(1);
+      expect(claimableAmounts.length).to.equal(1);
+      expect(stakeIds[0]).to.equal(1n); // First stake ID
+      expect(claimableAmounts[0]).to.equal(0n); // No time passed, so 0 claimable
     });
   });
 });

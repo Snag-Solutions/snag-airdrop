@@ -32,6 +32,9 @@ importers:
       '@openzeppelin/merkle-tree':
         specifier: ^1.0.8
         version: 1.0.8
+      '@primitivefi/hardhat-dodoc':
+        specifier: ^0.2.3
+        version: 0.2.3(hardhat@2.25.0(ts-node@10.9.2(@types/node@24.0.3)(typescript@5.0.4))(typescript@5.0.4))(squirrelly@8.0.8)
       '@types/chai':
         specifier: ^4.3.20
         version: 4.3.20
@@ -385,6 +388,12 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
+
+  '@primitivefi/hardhat-dodoc@0.2.3':
+    resolution: {integrity: sha512-ver9uHa79LTDTeebOKZ/eOVRL/FP1k0s0x/5Bo/8ZaDdLWFVClKqZyZYVjjW4CJqTPCt8uU9b9p71P2vzH4O9A==}
+    peerDependencies:
+      hardhat: ^2.6.4
+      squirrelly: ^8.0.8
 
   '@scure/base@1.1.9':
     resolution: {integrity: sha512-8YKhl8GHiNI/pU2VMaofa2Tor7PJRAjwQLBBuilkJ9L5+13yVbC7JO/wS7piioAvPSwR3JKM1IJ/u4xQzbcXKg==}
@@ -1753,6 +1762,10 @@ packages:
   sprintf-js@1.0.3:
     resolution: {integrity: sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==}
 
+  squirrelly@8.0.8:
+    resolution: {integrity: sha512-7dyZJ9Gw86MmH0dYLiESsjGOTj6KG8IWToTaqBuB6LwPI+hyNb6mbQaZwrfnAQ4cMDnSWMUvX/zAYDLTSWLk/w==}
+    engines: {node: '>=6.0.0'}
+
   stacktrace-parser@0.1.11:
     resolution: {integrity: sha512-WjlahMgHmCJpqzU8bIBy4qtsZdU9lRlcZE3Lvyej6t4tuOuv1vk57OW3MBrj6hXBFx/nNoC9MPMTcr5YA7NQbg==}
     engines: {node: '>=6'}
@@ -2460,6 +2473,11 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
+
+  '@primitivefi/hardhat-dodoc@0.2.3(hardhat@2.25.0(ts-node@10.9.2(@types/node@24.0.3)(typescript@5.0.4))(typescript@5.0.4))(squirrelly@8.0.8)':
+    dependencies:
+      hardhat: 2.25.0(ts-node@10.9.2(@types/node@24.0.3)(typescript@5.0.4))(typescript@5.0.4)
+      squirrelly: 8.0.8
 
   '@scure/base@1.1.9': {}
 
@@ -3990,6 +4008,8 @@ snapshots:
       readable-stream: 3.6.2
 
   sprintf-js@1.0.3: {}
+
+  squirrelly@8.0.8: {}
 
   stacktrace-parser@0.1.11:
     dependencies:

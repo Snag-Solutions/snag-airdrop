@@ -229,4 +229,26 @@ export async function claimUnlockedAndGetAmount(
     userAddress,
     () => claimUnlocked(stakeAsUser, stakeId)
   )
+}
+
+/**
+ * Calculate interface ID for ILinearStake
+ */
+export function calculateILinearStakeInterfaceId(): `0x${string}` {
+  // Function signatures for ILinearStake (including inherited from IBaseStake)
+  const functionSignatures = [
+    "stakeFor(address,uint256,uint32)",
+    "claimable(uint256,address)",
+    "claimUnlocked(uint256)",
+    "getStakeIds(address)"
+  ];
+  
+  // Calculate interface ID by XORing all function selectors
+  let interfaceId = 0n;
+  for (const signature of functionSignatures) {
+    const selector = keccak256(new TextEncoder().encode(signature)).slice(0, 10) as `0x${string}`;
+    interfaceId = interfaceId ^ BigInt(selector);
+  }
+  
+  return `0x${interfaceId.toString(16).padStart(8, '0')}` as `0x${string}`;
 } 

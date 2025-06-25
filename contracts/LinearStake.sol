@@ -1,32 +1,54 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+pragma solidity 0.8.20;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/ILinearStake.sol";
+import "./interfaces/IBaseStake.sol";
 
 error AmountMustBePositive();
 error DurationMustBePositive();
 error TransferFailed();
 error StakeDoesNotExist();
 
+/// @title LinearStake
+/// @author Snag Protocol
+/// @notice Linear vesting staking contract with claimable rewards
+/// @dev This contract implements linear vesting where tokens become claimable
+/// over time based on the lockup duration. Users can stake tokens and claim
+/// their vested amounts at any time.
 contract LinearStake is Context, ERC165, ILinearStake {
     using EnumerableSet for EnumerableSet.UintSet;
+    using SafeERC20 for IERC20;
+    
     IERC20 public immutable token;
 
-    struct StakeInfo { uint256 amount; uint32 duration; uint256 startTime; uint256 claimed; }
+    /// @dev Stake information structure
+    struct StakeInfo { 
+        uint256 amount;      /// Total amount staked
+        uint32 duration;     /// Lockup duration in seconds
+        uint256 startTime;   /// When the stake was created
+        uint256 claimed;     /// Amount already claimed
+    }
+    
     mapping(address => mapping(uint256 => StakeInfo)) private _stakes;
     mapping(address => uint256)                  private _stakeCounter;
     mapping(address => EnumerableSet.UintSet)    private _stakeIds;
 
-    constructor(address _token) { token = IERC20(_token); }
+    /// @notice Initialize the staking contract
+    /// @param _token The ERC-20 token to be staked
+    constructor(address _token) { 
+        token = IERC20(_token); 
+    }
 
+    /// @inheritdoc IBaseStake
     function stakeFor(address staker, uint256 amount, uint32 duration) external override {
         if (amount == 0)       revert AmountMustBePositive();
         if (duration == 0)     revert DurationMustBePositive();
-        if (!token.transferFrom(_msgSender(), address(this), amount)) revert TransferFailed();
+        token.safeTransferFrom(_msgSender(), address(this), amount);
 
         _stakeCounter[staker] += 1;
         uint256 id = _stakeCounter[staker];
@@ -35,6 +57,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
         emit Staked(staker, id, amount, duration);
     }
 
+    /// @inheritdoc ILinearStake
     function claimUnlocked(uint256 stakeId) external override returns (uint256 totalClaimed) {
         EnumerableSet.UintSet storage set_ = _stakeIds[_msgSender()];
         if (stakeId != 0) {
@@ -48,6 +71,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
         }
     }
 
+    /// @inheritdoc IBaseStake
     function claimable(uint256 stakeId, address account)
         external
         view
@@ -72,16 +96,24 @@ contract LinearStake is Context, ERC165, ILinearStake {
         }
     }
 
+    /// @dev Claim unlocked tokens for a single stake
+    /// @param acct The account address
+    /// @param id The stake ID
+    /// @return The amount claimed
     function _claimUnlockedSingle(address acct, uint256 id) private returns (uint256) {
         StakeInfo storage s = _stakes[acct][id];
         uint256 to = _claimableSingle(acct, id);
         if (to == 0) return 0;
         s.claimed += to;
-        if (!token.transfer(acct, to)) revert TransferFailed();
+        token.safeTransfer(acct, to);
         emit Claimed(acct, to);
         return to;
     }
 
+    /// @dev Calculate claimable amount for a single stake
+    /// @param acct The account address
+    /// @param id The stake ID
+    /// @return The claimable amount
     function _claimableSingle(address acct, uint256 id) private view returns (uint256) {
         StakeInfo storage s = _stakes[acct][id];
         if (s.amount == 0 || block.timestamp <= s.startTime) return 0;
@@ -90,10 +122,12 @@ contract LinearStake is Context, ERC165, ILinearStake {
         return vested > s.claimed ? vested - s.claimed : 0;
     }
 
+    /// @inheritdoc ILinearStake
     function getStakeIds(address account) external view override returns (uint256[] memory) {
         return _stakeIds[account].values();
     }
 
+    /// @inheritdoc ERC165
     function supportsInterface(bytes4 interfaceId)
         public
         view
@@ -103,7 +137,6 @@ contract LinearStake is Context, ERC165, ILinearStake {
     {
         return
             interfaceId == type(ILinearStake).interfaceId ||
-            interfaceId == type(IBaseStake).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 }

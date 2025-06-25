@@ -78,16 +78,16 @@ export async function deployClaimContract(
   await router.write.deployClaimContract([
     id,
     root,
-    erc20.address,
-    owner.account.address,
-    0n,
+    0n, // multiplier
+    erc20.address, // assetAddress
+    zeroAddress, // overrideStakingAddress
+    owner.account.address, // admin
     withStaking,
-    zeroAddress,
-    0,
-    0,
+    0, // minLockupDuration
+    0, // minLockupDurationForMultiplier
   ])
   const contractAddress = await router.read.claimContractById([id])
-  await erc20.write.transfer([contractAddress, parseEther('160')])
+  await erc20.write.transfer([contractAddress, parseEther('10000')])
   await router.write.unpause([id])
   return { id, contractAddress }
 }
@@ -110,17 +110,16 @@ export async function deployClaimContractWithMultiplier(
   await router.write.deployClaimContract([
     id,
     root,
-    erc20.address,
-    owner.account.address,
     multiplier,
-    withStaking,
+    erc20.address, // assetAddress
     overrideStakingAddress,
+    owner.account.address, // admin
+    withStaking,
     minLockupDuration,
     minLockupDurationForMultiplier,
   ])
   const contractAddress = await router.read.claimContractById([id])
   // Transfer more tokens to account for potential bonus amounts
-  // With 20% bonus on 100 ETH, we need 120 ETH, so we'll transfer 200 ETH to be safe
   await erc20.write.transfer([contractAddress, parseEther('10000')])
   await router.write.unpause([id])
   return { id, contractAddress }
@@ -145,11 +144,11 @@ export async function deployClaimContractWithCustomBalance(
   await router.write.deployClaimContract([
     id,
     root,
-    erc20.address,
-    owner.account.address,
     multiplier,
-    withStaking,
+    erc20.address, // assetAddress
     overrideStakingAddress,
+    owner.account.address, // admin
+    withStaking,
     minLockupDuration,
     minLockupDurationForMultiplier,
   ])

@@ -25,6 +25,7 @@ export async function makeClaimArgs(
 ): Promise<
   [
     `0x${string}`,
+    `0x${string}`,
     `0x${string}`[],
     bigint,
     ClaimOptions,
@@ -35,8 +36,8 @@ export async function makeClaimArgs(
   const domain = {
     name: "SnagAirdropClaim",
     version: "1",
-    chainId: await signer.getChainId(),
-    verifyingContract: claimContract,
+    chainId: await signer.getChainId(), //pass the chain id of the claim contract here
+    verifyingContract: claimContract,//pass the claim contract address here
   };
   const types = {
     ClaimRequest: [
@@ -51,14 +52,14 @@ export async function makeClaimArgs(
     ]
   };
   const message = {
-    id,
-    beneficiary,
-    totalAllocation,
-    percentageToClaim: opts.percentageToClaim,
-    percentageToStake: opts.percentageToStake,
-    lockupPeriod: opts.lockupPeriod,
-    optionId: opts.optionId,
-    router: routerAddress,
+    id,//the id of the airdrop keccak256(new TextEncoder().encode(claim.id(uuid)))
+    beneficiary,//wallet to get the tokens (addres must be in the claim list)
+    totalAllocation,//number in the db
+    percentageToClaim: opts.percentageToClaim, //use defined value  use 100 or v1 in the future this could be a slider
+    percentageToStake: opts.percentageToStake, //for v1 always 0 
+    lockupPeriod: opts.lockupPeriod,//for v1 always 0
+    optionId: opts.optionId,//for v1 always keccak256(new TextEncoder().encode('full-claim'))
+    router: routerAddress,// the router address is the same on all chains
   };
   const signature = await signer.signTypedData({
     account: signer.account!,
@@ -67,5 +68,5 @@ export async function makeClaimArgs(
     primaryType: "ClaimRequest",
     message,
   });
-  return [id, proof, totalAllocation, opts, signature];
+  return [id,beneficiary, proof, totalAllocation, opts, signature];
 }

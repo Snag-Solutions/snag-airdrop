@@ -12,17 +12,6 @@ import {ISnagAirdropClaim} from './interfaces/ISnagAirdropClaim.sol';
 import {EIP712} from '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
 import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 
-error OutOfTokens(uint256 required, uint256 available);
-error OnlyRouter();
-error InvalidSignature();
-error PctSumExceeded();
-error NoStaking();
-error LockupTooShort();
-error InvalidOptionId();
-error AirdropNotActive();
-error AlreadyClaimed();
-error InvalidProof();
-
 /// @title SnagAirdropClaim
 /// @author Snag Protocol
 /// @notice Per-airdrop claim contract with signed ClaimOptions and optional staking

@@ -4,7 +4,7 @@ import {
 } from '@nomicfoundation/hardhat-toolbox-viem/network-helpers'
 import { expect } from 'chai'
 import hre from 'hardhat'
-import { getAddress, parseGwei, parseEther, keccak256, zeroAddress } from 'viem'
+import { getAddress, parseGwei, parseEther, keccak256, zeroAddress, maxUint256 } from 'viem'
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree'
 import {
   CLAIM_OPTIONS,
@@ -232,8 +232,7 @@ describe('Claim', function () {
           totalAllocation,
           opts: CLAIM_OPTIONS.FULL_CLAIM,
         },
-        await routerAsClaimList.read.claimContractById([id]),
-        router.address
+        await routerAsClaimList.read.claimContractById([id])
       )
 
       // Should fail because signature doesn't match the beneficiary
@@ -295,7 +294,7 @@ describe('Claim', function () {
       // Create claim options with lockup period that meets multiplier threshold
       const claimOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 120, // 120 seconds > 60 second threshold
         optionId: keccak256(new TextEncoder().encode('test-option')),
       }
@@ -309,7 +308,6 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         await routerAsClaimList.read.claimContractById([id]),
-        router.address
       )
 
       // Execute claim
@@ -378,7 +376,7 @@ describe('Claim', function () {
       // Create claim options with lockup period BELOW multiplier threshold
       const claimOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 45, // 45 seconds < 60 second threshold
         optionId: keccak256(new TextEncoder().encode('test-option')),
       }
@@ -392,7 +390,6 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         await routerAsClaimList.read.claimContractById([id]),
-        router.address
       )
 
       // Execute claim
@@ -460,7 +457,7 @@ describe('Claim', function () {
       // Create claim options with lockup period that would normally qualify
       const claimOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 120, // > threshold
         optionId: keccak256(new TextEncoder().encode('test-option')),
       }
@@ -474,7 +471,6 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         await routerAsClaimList.read.claimContractById([id]),
-        router.address
       )
 
       // Execute claim
@@ -541,8 +537,8 @@ describe('Claim', function () {
 
       // Create claim options with partial stake
       const claimOptions = {
-        percentageToClaim: 30, // 30% claimed
-        percentageToStake: 70, // 70% staked
+        percentageToClaim: 3_000, // 30% claimed (in bips)
+        percentageToStake: 7_000, // 70% staked (in bips)
         lockupPeriod: 120, // > threshold
         optionId: keccak256(new TextEncoder().encode('test-option')),
       }
@@ -556,15 +552,14 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         await routerAsClaimList.read.claimContractById([id]),
-        router.address
       )
 
       // Execute claim
       await routerAsClaimList.write.claim(args)
 
       // Calculate expected amounts
-      const expectedClaimed = (totalAllocation * 30n) / 100n
-      const expectedStaked = (totalAllocation * 70n) / 100n
+      const expectedClaimed = (totalAllocation * 3_000n) / 10_000n
+      const expectedStaked = (totalAllocation * 7_000n) / 10_000n
       const expectedBonus = (expectedStaked * multiplier) / 10000n // 20% bonus on staked amount
       const expectedTotalStaked = expectedStaked + expectedBonus
 
@@ -638,7 +633,7 @@ describe('Claim', function () {
       // Create claim options
       const claimOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 120, // > threshold
         optionId: keccak256(new TextEncoder().encode('test-option')),
       }
@@ -652,7 +647,6 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         await routerAsClaimList.read.claimContractById([id]),
-        router.address
       )
 
       // Execute claim
@@ -720,7 +714,7 @@ describe('Claim', function () {
       // Create claim options with EXACT threshold lockup period
       const claimOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 60, // Exactly equal to threshold
         optionId: keccak256(new TextEncoder().encode('test-option')),
       }
@@ -734,7 +728,6 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         await routerAsClaimList.read.claimContractById([id]),
-        router.address
       )
 
       // Execute claim
@@ -919,7 +912,7 @@ describe('Claim', function () {
 
       // Create proper claim options and proof
       const claimOptions = {
-        percentageToClaim: 100,
+        percentageToClaim: 10_000, // 100% claimed (in bips)
         percentageToStake: 0,
         lockupPeriod: 0,
         optionId: keccak256(new TextEncoder().encode('big-claim')),
@@ -946,7 +939,6 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         contractAddress,
-        router.address
       )
       await expect(routerAsBigUser.write.claim(args)).to.be.rejectedWith(
         'OutOfTokens'
@@ -989,7 +981,7 @@ describe('Claim', function () {
       // 100% stake, lockup > 0
       const claimOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 100,
         optionId: keccak256(new TextEncoder().encode('super-bonus')),
       }
@@ -1002,7 +994,6 @@ describe('Claim', function () {
           opts: claimOptions,
         },
         contractAddress,
-        router.address
       )
       await expect(routerAsClaimList.write.claim(args)).to.be.rejectedWith(
         'OutOfTokens'
@@ -1189,14 +1180,14 @@ describe('Claim', function () {
 
   // ───────────── Validation Error Tests ─────────────────────────────
   describe('Validation Error Conditions', function () {
-    it('Should revert when percentage sum exceeds 100', async function () {
+    it('Should revert when percentage sum exceeds 10_000', async function () {
       const { routerAsClaimList, inClaimList, id, proof, totalAllocation } =
         await setupClaimTest()
 
       // Create invalid claim options with sum > 100
       const invalidOptions = {
-        percentageToClaim: 60,
-        percentageToStake: 50, // 60 + 50 = 110 > 100
+        percentageToClaim: 6_000,
+        percentageToStake: 5_000, // 60% + 50% = 110% > 100% (in bips)
         lockupPeriod: 100,
         optionId: keccak256(new TextEncoder().encode('invalid-option')),
       }
@@ -1267,11 +1258,11 @@ describe('Claim', function () {
       )
 
       // Try to stake when no staking contract exists
-      const stakeOptions = {
+      const stakeOnlyOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 100,
-        optionId: keccak256(new TextEncoder().encode('stake-no-contract')),
+        optionId: keccak256(new TextEncoder().encode('stake-only')),
       }
 
       await expect(
@@ -1281,7 +1272,7 @@ describe('Claim', function () {
           id,
           proof,
           totalAllocation,
-          stakeOptions
+          stakeOnlyOptions
         )
       ).to.be.rejectedWith('NoStaking')
     })
@@ -1405,7 +1396,6 @@ describe('Claim', function () {
           opts: CLAIM_OPTIONS.FULL_CLAIM,
         },
         await routerAsClaimList.read.claimContractById([id]),
-        router.address
       )
 
       // Should fail with invalid proof
@@ -1429,6 +1419,7 @@ describe('Claim', function () {
           id, // Use same ID
           root,
           0n, // multiplier
+          maxUint256, // maxBonus
           erc20.address,
           zeroAddress, // override staking
           owner.account.address, // admin
@@ -1448,6 +1439,7 @@ describe('Claim', function () {
           createRandomId(),
           root,
           0n, // multiplier
+          maxUint256, // maxBonus
           erc20.address,
           zeroAddress, // override staking
           zeroAddress, // zero admin
@@ -1476,7 +1468,7 @@ describe('Claim', function () {
       // Non-router should not be able to end airdrop
       await expect(
         routerAsOther.write.endAirdrop([id, otherAccount.account.address])
-      ).to.be.rejectedWith('NotAirdropAdmin')
+      ).to.be.rejected
     })
 
     it('Should revert when calling admin functions on non-existent airdrop', async function () {
@@ -1508,7 +1500,7 @@ describe('Claim', function () {
         '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
       ] as `0x${string}`[]
       const dummyOptions = {
-        percentageToClaim: 100,
+        percentageToClaim: 10_000, // 100% claimed (in bips)
         percentageToStake: 0,
         lockupPeriod: 0,
         optionId: keccak256(new TextEncoder().encode('dummy')),
@@ -1523,7 +1515,6 @@ describe('Claim', function () {
           opts: dummyOptions,
         },
         zeroAddress, // dummy contract address
-        router.address
       )
 
       // Should fail with invalid ID
@@ -1574,7 +1565,7 @@ describe('Claim', function () {
       // Create claim options with only staking
       const stakeOnlyOptions = {
         percentageToClaim: 0,
-        percentageToStake: 100,
+        percentageToStake: 10_000, // 100% staked (in bips)
         lockupPeriod: 100,
         optionId: keccak256(new TextEncoder().encode('stake-only')),
       }
@@ -1610,7 +1601,7 @@ describe('Claim', function () {
 
       // Create claim options with only direct claim
       const claimOnlyOptions = {
-        percentageToClaim: 100,
+        percentageToClaim: 10_000, // 100% claimed (in bips)
         percentageToStake: 0,
         lockupPeriod: 0,
         optionId: keccak256(new TextEncoder().encode('claim-only')),

@@ -1,5 +1,5 @@
 import hre from 'hardhat'
-import { parseEther, keccak256, zeroAddress } from 'viem'
+import { parseEther, keccak256, zeroAddress, maxUint256 } from 'viem'
 import { ClaimOptions, makeClaimArgs } from './makeClaimArgs'
 import { 
   TestSetup, 
@@ -17,35 +17,35 @@ export const CLAIM_OPTIONS: Record<string, ClaimOptions> = {
   // Claim 100% of tokens immediately
   FULL_CLAIM: {
     optionId: keccak256(new TextEncoder().encode('full-claim')),
-    percentageToClaim: 100,
+    percentageToClaim: 10_000,
     percentageToStake: 0,
     lockupPeriod: 0,
   },
   // Claim 50% and stake 50% for 30 days
   HALF_CLAIM_HALF_STAKE: {
     optionId: keccak256(new TextEncoder().encode('half-claim-half-stake')),
-    percentageToClaim: 50,
-    percentageToStake: 50,
+    percentageToClaim: 5_000,
+    percentageToStake: 5_000,
     lockupPeriod: 30 * 24 * 60 * 60, // 30 days in seconds
   },
   // Stake 100% for 90 days
   FULL_STAKE: {
     optionId: keccak256(new TextEncoder().encode('full-stake')),
     percentageToClaim: 0,
-    percentageToStake: 100,
+    percentageToStake: 10_000,
     lockupPeriod: 90 * 24 * 60 * 60, // 90 days in seconds
   },
   // Claim 75% and stake 25% for 60 days
   PARTIAL_CLAIM_STAKE: {
     optionId: keccak256(new TextEncoder().encode('partial-claim-stake')),
-    percentageToClaim: 75,
-    percentageToStake: 25,
+    percentageToClaim: 7_500,
+    percentageToStake: 2_500,
     lockupPeriod: 60 * 24 * 60 * 60, // 60 days in seconds
   },
   // Claim  50% and no staking
   PARTIAL_CLAIM: {
     optionId: keccak256(new TextEncoder().encode('partial-claim')),
-    percentageToClaim: 50,
+    percentageToClaim: 5_000,
     percentageToStake: 0,
     lockupPeriod: 0,
   },
@@ -79,6 +79,7 @@ export async function deployClaimContract(
     id,
     root,
     0n, // multiplier
+    maxUint256, // maxBonus
     erc20.address, // assetAddress
     zeroAddress, // overrideStakingAddress
     owner.account.address, // admin
@@ -111,6 +112,7 @@ export async function deployClaimContractWithMultiplier(
     id,
     root,
     multiplier,
+    maxUint256, // maxBonus
     erc20.address, // assetAddress
     overrideStakingAddress,
     owner.account.address, // admin
@@ -145,6 +147,7 @@ export async function deployClaimContractWithCustomBalance(
     id,
     root,
     multiplier,
+    maxUint256, // maxBonus
     erc20.address, // assetAddress
     overrideStakingAddress,
     owner.account.address, // admin
@@ -221,8 +224,7 @@ export async function executeClaim(
       totalAllocation,
       opts: claimOptions,
     },
-    await routerAsClaimList.read.claimContractById([id]),
-    routerAsClaimList.address
+    await routerAsClaimList.read.claimContractById([id])
   )
 
   return await routerAsClaimList.write.claim(claimArgs)

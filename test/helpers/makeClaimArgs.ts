@@ -21,7 +21,6 @@ export async function makeClaimArgs(
   signer: WalletClient,
   { id, proof, totalAllocation, opts }: ClaimParams,
   claimContract: `0x${string}`,
-  routerAddress: `0x${string}`
 ): Promise<
   [
     `0x${string}`,
@@ -44,11 +43,10 @@ export async function makeClaimArgs(
       { name: "id",                type: "bytes32" },
       { name: "beneficiary",       type: "address" },
       { name: "totalAllocation",   type: "uint256" },
-      { name: "percentageToClaim", type: "uint8" },
-      { name: "percentageToStake", type: "uint8" },
+      { name: "percentageToClaim", type: "uint16" },
+      { name: "percentageToStake", type: "uint16" },
       { name: "lockupPeriod",      type: "uint32" },
       { name: "optionId",          type: "bytes32" },
-      { name: "router",            type: "address" }
     ]
   };
   const message = {
@@ -59,7 +57,6 @@ export async function makeClaimArgs(
     percentageToStake: opts.percentageToStake, //for v1 always 0 
     lockupPeriod: opts.lockupPeriod,//for v1 always 0
     optionId: opts.optionId,//for v1 always keccak256(new TextEncoder().encode('full-claim'))
-    router: routerAddress,// the router address is the same on all chains
   };
   const signature = await signer.signTypedData({
     account: signer.account!,

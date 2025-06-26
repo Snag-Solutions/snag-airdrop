@@ -11,8 +11,8 @@ interface ISnagAirdropClaim {
     /// @notice Configuration options for claiming tokens from an airdrop.
     struct ClaimOptions {
         bytes32 optionId;        /// Unique identifier for the claim option (must be non-zero)
-        uint8  percentageToClaim; /// Percentage of allocation to claim immediately (0-100)
-        uint8  percentageToStake; /// Percentage of allocation to stake (0-100)
+        uint16 percentageToClaim; /// Percentage of allocation to claim immediately (in bips, 0-10,000)
+        uint16 percentageToStake; /// Percentage of allocation to stake (in bips, 0-10,000)
         uint32 lockupPeriod;     /// Lockup duration in seconds for staked tokens
     }
 
@@ -30,6 +30,13 @@ interface ISnagAirdropClaim {
     /// @dev This event is indexed by the recipient address for efficient filtering.
     event AirdropEnded(address indexed to, uint256 amount);
 
+    /// @notice Emitted when airdrop ownership is transferred to a new admin.
+    /// @param id The airdrop identifier
+    /// @param previousAdmin The previous admin address
+    /// @param newAdmin The new admin address
+    /// @dev This event provides an audit trail for ownership transfers.
+    event AirdropOwnershipTransferred(bytes32 indexed id, address indexed previousAdmin, address indexed newAdmin);
+
     // ───────────── Errors ─────────────────────────────────────────
 
     /// @notice Thrown when contract balance is insufficient for a transfer.
@@ -46,8 +53,8 @@ interface ISnagAirdropClaim {
     /// @dev This error occurs when the signature verification fails, preventing unauthorized claims.
     error InvalidSignature();
 
-    /// @notice Thrown when `percentageToClaim + percentageToStake > 100`.
-    /// @dev This error ensures that the total percentage does not exceed 100%.
+    /// @notice Thrown when `percentageToClaim + percentageToStake > 10,000`.
+    /// @dev This error ensures that the total percentage does not exceed 10,000 (bips).
     error PctSumExceeded();
 
     /// @notice Thrown when staking is requested but no staking contract is configured.
@@ -66,13 +73,17 @@ interface ISnagAirdropClaim {
     /// @dev This error prevents claims after the airdrop has been permanently ended.
     error AirdropNotActive();
 
-    /// @notice Thrown when a user attempts to claim more than once.
-    /// @dev This error ensures that each user can only claim once per airdrop.
+    /// @notice Thrown when a proof is used more than once.
+    /// @dev This error ensures that each proof can only be used once per airdrop.
     error AlreadyClaimed();
 
     /// @notice Thrown when the provided Merkle proof does not verify.
     /// @dev This error occurs when the Merkle proof is invalid or doesn't match the expected allocation.
     error InvalidProof();
+
+    /// @notice Thrown when a zero address is provided where a non-zero address is required.
+    /// @dev This error ensures that important addresses are not set to the zero address.
+    error ZeroAddress();
 
     // ───────────── Read-only Accessors ───────────────────────────
 
@@ -143,7 +154,7 @@ interface ISnagAirdropClaim {
     /// It will revert if any validation fails, providing early feedback on claim options.
     /// 
     /// Validation includes:
-    /// - Percentage sum must not exceed 100%
+    /// - Percentage sum must not exceed 10,000 (bips)
     /// - OptionId must be non-zero
     /// - If staking is requested, staking contract must be available
     /// - If staking is requested, lockup period must meet minimum requirement

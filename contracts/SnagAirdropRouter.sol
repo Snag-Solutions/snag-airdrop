@@ -26,6 +26,7 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         bytes32 id,
         bytes32 root,
         uint256 multiplier,
+        uint256 maxBonus,
         address assetAddress,
         address overrideStakingAddress,
         address admin,
@@ -36,24 +37,23 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         if (claimContractById[id] != address(0)) revert IdExists();
         if (admin == address(0)) revert ZeroAdmin();
 
-        // decide staking address
-        address stakingAddr;
+        address stakingAddr = address(0);
         if (withStaking) {
             if (overrideStakingAddress != address(0)) {
-                if (
-                    !IERC165(overrideStakingAddress).supportsInterface(
-                        type(IBaseStake).interfaceId
-                    )
-                ) revert InvalidStakingAddress();
+                if (!IERC165(overrideStakingAddress).supportsInterface(type(IBaseStake).interfaceId)) {
+                    revert InvalidStakingAddress();
+                }
                 stakingAddr = overrideStakingAddress;
             } else {
                 stakingAddr = address(new LinearStake(assetAddress));
             }
         }
+
         SnagAirdropClaim claimC = new SnagAirdropClaim(
             root,
             assetAddress,
             stakingAddr,
+            maxBonus,
             minLockupDuration,
             minLockupDurationForMultiplier,
             multiplier
@@ -62,13 +62,7 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
         claimContractById[id] = address(claimC);
         airdropAdmin[id] = admin;
 
-        emit ClaimContractDeployed(
-            id,
-            root,
-            address(claimC),
-            stakingAddr,
-            admin
-        );
+        emit ClaimContractDeployed(id, root, address(claimC), stakingAddr, admin);
 
         return address(claimC);
     }
@@ -203,5 +197,16 @@ contract SnagAirdropRouter is Context, ISnagAirdropRouter {
     /// @inheritdoc ISnagAirdropRouter
     function unpause(bytes32 id) external onlyAirdropAdmin(id) {
         SnagAirdropClaim(claimContractById[id]).unpause();
+    }
+
+    /// @inheritdoc ISnagAirdropRouter
+    function transferOwnership(
+        bytes32 id,
+        address newAdmin
+    ) external onlyAirdropAdmin(id) {
+        if (newAdmin == address(0)) revert ZeroAdmin();
+        address previousAdmin = airdropAdmin[id];
+        airdropAdmin[id] = newAdmin;
+        emit AirdropOwnershipTransferred(id, previousAdmin, newAdmin);
     }
 }

@@ -79,11 +79,18 @@ interface ISnagAirdropRouter {
         address indexed claimer,
         uint256 amountClaimed,
         uint256 amountStaked,
-        uint8 percentageToClaim,
-        uint8 percentageToStake,
+        uint16 percentageToClaim,
+        uint16 percentageToStake,
         uint32 lockupPeriod,
         uint256 multiplier
     );
+
+    /// @notice Emitted when airdrop ownership is transferred to a new admin.
+    /// @param id The airdrop identifier
+    /// @param previousAdmin The previous admin address
+    /// @param newAdmin The new admin address
+    /// @dev This event provides an audit trail for ownership transfers.
+    event AirdropOwnershipTransferred(bytes32 indexed id, address indexed previousAdmin, address indexed newAdmin);
 
     // ───────────── Read Functions ─────────────────────────────────
 
@@ -137,6 +144,7 @@ interface ISnagAirdropRouter {
         bytes32  id,
         bytes32  root,
         uint256  multiplier,
+        uint256  maxBonus,
         address  assetAddress,
         address  overrideStakingAddress,
         address  admin,
@@ -318,4 +326,21 @@ interface ISnagAirdropRouter {
      * This function can only be called if the airdrop is currently paused.
      */
     function unpause(bytes32 id) external;
+
+    /**
+     * @notice Transfer ownership of an airdrop to a new admin (admin only).
+     * @param id The airdrop identifier
+     * @param newAdmin The address of the new admin
+     * @dev This function allows the current airdrop admin to transfer ownership to a new address.
+     * The new admin will have full administrative control over the airdrop.
+     * Only the current airdrop admin can call this function.
+     * The new admin cannot be the zero address.
+     * 
+     * Example usage:
+     * ```solidity
+     * // Transfer ownership to a new admin
+     * router.transferOwnership(airdropId, newAdminAddress);
+     * ```
+     */
+    function transferOwnership(bytes32 id, address newAdmin) external;
 }

@@ -165,7 +165,6 @@ contract SnagAirdropClaim is
         if (toStake > 0) {
             uint256 available = _tokenAsset.balanceOf(address(this));
             if (available < toStake) revert OutOfTokens(toStake, available);
-            _tokenAsset.safeTransfer(address(stakingAddress), toStake);
             stakingAddress.stakeFor(beneficiary, toStake, o.lockupPeriod);
         }
     }

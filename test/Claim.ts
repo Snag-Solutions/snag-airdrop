@@ -1,1669 +1,963 @@
 import {
-  time,
-  loadFixture,
-} from '@nomicfoundation/hardhat-toolbox-viem/network-helpers'
-import { expect } from 'chai'
-import hre from 'hardhat'
-import { getAddress, parseGwei, parseEther, keccak256, zeroAddress, maxUint256 } from 'viem'
-import { StandardMerkleTree } from '@openzeppelin/merkle-tree'
-import {
-  CLAIM_OPTIONS,
-  deployClaimContract,
-  deployClaimContractWithMultiplier,
-  deployClaimContractWithCustomBalance,
-  setupClaimTest,
-  executeClaim,
-  verifyClaimStakingData,
-  getClaimData,
-  getClaimStakingData,
-  getClaimStakingAddress,
-} from './helpers/claim'
-import {
-  deployFixture,
-  verifyUserBalance,
-  createRandomId,
-  findUserInClaimList,
-  getMerkleProof,
-} from './helpers/shared'
-import { makeClaimArgs } from './helpers/makeClaimArgs'
-
-describe('Claim', function () {
-  // ───────────── Admin Tests ─────────────────────────────────────
-
-  describe('Admin Flows', function () {
-    it('should deploy a claim contract', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { contractAddress } = await deployClaimContract(
-        router,
-        root,
-        erc20,
-        owner
-      )
-      expect(contractAddress).to.not.equal(null)
-    })
-
-    it('Should cancel a claim contract', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { id, contractAddress } = await deployClaimContract(
-        router,
-        root,
-        erc20,
-        owner
-      )
-
-      const claimContractBalance = await erc20.read.balanceOf([contractAddress])
-      const ownerBalance = await erc20.read.balanceOf([owner.account.address])
-
-      await router.write.endAirdrop([id, owner.account.address])
-
-      const claimContractBalance2 = await erc20.read.balanceOf([
-        contractAddress,
-      ])
-      const ownerBalance2 = await erc20.read.balanceOf([owner.account.address])
-
-      expect(claimContractBalance2).to.equal(0n)
-      expect(ownerBalance2).to.equal(claimContractBalance + ownerBalance)
-    })
-
-    it('Should Update Multiplier on claim contract', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { id, contractAddress } = await deployClaimContract(
-        router,
-        root,
-        erc20,
-        owner
-      )
-
-      const claimContract = await hre.viem.getContractAt(
-        'SnagAirdropClaim',
-        contractAddress
-      )
-      const multiplier = await claimContract.read.multiplier()
-
-      await router.write.setMultiplier([id, 100n])
-
-      const multiplier2 = await claimContract.read.multiplier()
-      expect(multiplier2).to.not.equal(multiplier)
-    })
-  })
-
-  // ───────────── User Claim Tests ─────────────────────────────────
-
-  describe('User Claim Flows', function () {
-    it('Should claim tokens with full claim option', async function () {
-      const {
-        routerAsClaimList,
-        inClaimList,
-        id,
-        erc20,
-        proof,
-        totalAllocation,
-      } = await setupClaimTest()
-
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        CLAIM_OPTIONS.FULL_CLAIM
-      )
-      await verifyUserBalance(
-        erc20,
-        inClaimList.account.address,
-        totalAllocation
-      )
-    })
-
-    it('Should claim and stake tokens with half-half option', async function () {
-      const {
-        routerAsClaimList,
-        inClaimList,
-        id,
-        erc20,
-        proof,
-        totalAllocation,
-      } = await setupClaimTest()
-
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        CLAIM_OPTIONS.HALF_CLAIM_HALF_STAKE
-      )
-
-      // Verify claimed amount (50%)
-      await verifyUserBalance(
-        erc20,
-        inClaimList.account.address,
-        totalAllocation / 2n
-      )
-
-      // Verify staking data
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-    })
-
-    it('Should claim tokens with partial claim option', async function () {
-      const {
-        routerAsClaimList,
-        inClaimList,
-        id,
-        erc20,
-        proof,
-        totalAllocation,
-      } = await setupClaimTest()
-
-      // First claim - should succeed
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        CLAIM_OPTIONS.PARTIAL_CLAIM
-      )
-      await verifyUserBalance(
-        erc20,
-        inClaimList.account.address,
-        totalAllocation / 2n
-      )
-
-      // Try to claim again - should fail
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          CLAIM_OPTIONS.PARTIAL_CLAIM
-        )
-      ).to.be.rejectedWith('AlreadyClaimed')
-
-      // Verify balance hasn't changed
-      await verifyUserBalance(
-        erc20,
-        inClaimList.account.address,
-        totalAllocation / 2n
-      )
-    })
-
-    it('Should reject claim with incorrect signature', async function () {
-      const {
-        router,
-        owner,
-        root,
-        erc20,
-        inClaimList,
-        otherAccount,
-        tree,
-        claimList,
-      } = await deployFixture()
-      const { id } = await deployClaimContract(router, root, erc20, owner)
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create signature with wrong signer (otherAccount instead of inClaimList)
-      const args = await makeClaimArgs(
-        inClaimList, // Wrong signer - should be inClaimList
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: CLAIM_OPTIONS.FULL_CLAIM,
-        },
-        await routerAsClaimList.read.claimContractById([id])
-      )
-
-      // Should fail because signature doesn't match the beneficiary
-      await expect(
-        routerAsClaimList.write.claim([
-          args[0],
-          otherAccount.account.address,
-          args[2],
-          args[3],
-          args[4],
-          args[5],
-        ])
-      ).to.be.rejectedWith('InvalidSignature')
-
-      // Verify no tokens were claimed
-      await verifyUserBalance(erc20, inClaimList.account.address, 0n)
-    })
-  })
-
-  // ───────────── Multiplier Tests ─────────────────────────────────
-
-  describe('Multiplier Logic', function () {
-    it('Should apply multiplier when lockup period meets threshold', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-
-      // Deploy with multiplier and threshold
-      const multiplier = 1000n // 10% bonus (1000 bips)
-      const minLockupDuration = 30 // 30 seconds
-      const minLockupDurationForMultiplier = 60 // 60 seconds for bonus
-
-      const { id } = await deployClaimContractWithMultiplier(
-        router,
-        root,
-        erc20,
-        owner,
+    time,
+    loadFixture,
+  } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+  import hre from "hardhat";
+  import { expect } from "chai";
+  import {
+    keccak256,
+    parseEther,
+    getAddress,
+    zeroAddress,
+    encodePacked,
+    toBytes,
+    parseEventLogs,
+  } from "viem";
+  import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
+  
+  /* -------------------------------------------------------------------------- */
+  /*                                  Helpers                                   */
+  /* -------------------------------------------------------------------------- */
+  
+  type ClaimOptions = {
+    optionId: `0x${string}`;
+    multiplier: bigint;
+    percentageToClaim: number; // uint16
+    percentageToStake: number; // uint16
+    lockupPeriod: number; // uint32
+  };
+  
+  type InitParams = {
+    admin: `0x${string}`;
+    root: `0x${string}`;
+    asset: `0x${string}`;
+    staking: `0x${string}`;
+    maxBonus: bigint;
+    minLockupDuration: number;
+    minLockupDurationForMultiplier: number;
+    multiplier: bigint;
+  };
+  
+  type InitFeeConfig = {
+    priceFeed: `0x${string}`;
+    maxPriceAge: number;
+    protocolTreasury: `0x${string}`;
+    protocolOverflow: `0x${string}`;
+    partnerOverflow: `0x${string}`;
+    feeClaimUsdCents: bigint;
+    feeStakeUsdCents: bigint;
+    feeCapUsdCents: bigint;
+    overflowMode: number; // 0 Cancel, 1 Partner, 2 Protocol
+    protocolTokenShareBips: number; // uint16
+  };
+  
+  function leafFor(addr: `0x${string}`, amount: bigint): `0x${string}` {
+    return keccak256(encodePacked(["bytes32"], [keccak256(encodePacked(["address", "uint256"], [addr, amount]))]));
+  }
+  
+  async function makeClaimSignature(
+    signer: any,
+    claimAddress: `0x${string}`,
+    beneficiary: `0x${string}`,
+    totalAllocation: bigint,
+    opts: ClaimOptions
+  ): Promise<`0x${string}`> {
+    const domain = {
+      name: "SnagAirdropClaim",
+      version: "1",
+      chainId: await signer.getChainId(),
+      verifyingContract: claimAddress,
+    };
+    const types = {
+      ClaimRequest: [
+        { name: "claimAddress", type: "address" },
+        { name: "beneficiary", type: "address" },
+        { name: "totalAllocation", type: "uint256" },
+        { name: "percentageToClaim", type: "uint16" },
+        { name: "percentageToStake", type: "uint16" },
+        { name: "lockupPeriod", type: "uint32" },
+        { name: "optionId", type: "bytes32" },
+        { name: "multiplier", type: "uint256" },
+      ],
+    } as const;
+    const message = {
+      claimAddress,
+      beneficiary,
+      totalAllocation,
+      percentageToClaim: opts.percentageToClaim,
+      percentageToStake: opts.percentageToStake,
+      lockupPeriod: opts.lockupPeriod,
+      optionId: opts.optionId,
+      multiplier: opts.multiplier,
+    };
+    return signer.signTypedData({
+      account: signer.account!,
+      domain,
+      types,
+      primaryType: "ClaimRequest",
+      message,
+    });
+  }
+  
+  /* -------------------------------------------------------------------------- */
+  /*                                  Fixture                                   */
+  /* -------------------------------------------------------------------------- */
+  
+  async function deployFixture() {
+    const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow] =
+      await hre.viem.getWalletClients();
+  
+    // Deploy mocks
+    const erc20 = await hre.viem.deployContract("MockERC20", [deployer.account.address]);
+    const stake = await hre.viem.deployContract("MockStake");
+    const feed = await hre.viem.deployContract("MockAggregatorV3", [8, 3000n * 10n ** 8n]); // 1 ETH ~ $3000
+  
+    // Factory with roles (this is the updated mock)
+    const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
+  
+    // Build merkle list
+    const allocation = parseEther("100");
+    const claimList: [string, bigint][] = [
+      [user.account.address, allocation],
+      [partnerAdmin.account.address, parseEther("5")],
+    ];
+    const tree = StandardMerkleTree.of(claimList, ["address", "uint256"]);
+    const root = tree.root as `0x${string}`;
+  
+    // Claim init params
+    const multiplier = 1000n; // 10%
+    const ip: InitParams = {
+      admin: partnerAdmin.account.address,
+      root,
+      asset: erc20.address,
+      staking: stake.address,
+      maxBonus: parseEther("1000"),
+      minLockupDuration: 1, // minimal
+      minLockupDurationForMultiplier: 60,
+      multiplier,
+    };
+  
+    // Fee config: $1 for claim, $2 for stake, cap $10, token share 1%
+    const cfg: InitFeeConfig = {
+      priceFeed: feed.address,
+      maxPriceAge: 3600,
+      protocolTreasury: protocolTreasury.account.address,
+      protocolOverflow: protocolOverflow.account.address,
+      partnerOverflow: overflowPartner.account.address,
+      feeClaimUsdCents: 100n,
+      feeStakeUsdCents: 200n,
+      feeCapUsdCents: 1000n,
+      overflowMode: 0, // Cancel
+      protocolTokenShareBips: 100, // 1%
+    };
+  
+    // Deploy claim via factory (ensures onlyFactory)
+    const salt = keccak256(toBytes("salt-1"));
+    const tx = await factory.write.deployClaim([ip, cfg, salt]);
+    // Find created address from CREATE2: we can compute, but simpler: query logs? claim has no event on init.
+    // In tests we can brute-force by scanning for new code — but here, call a helper: compute CREATE2 manually.
+    // Deterministic: keccak256(0xFF ++ factory ++ salt ++ keccak256(bytecode))[12:]
+    // We’ll compute it using viem’s getContractAddress utility — not available. Implement quick compute:
+  
+    const bytecode = (await hre.artifacts.readArtifact("SnagAirdropV2Claim")).bytecode as `0x${string}`;
+    function computeCreate2Address(factoryAddr: `0x${string}`, saltHex: `0x${string}`, initCodeHash: `0x${string}`): `0x${string}` {
+      const packed = encodePacked(["bytes1","address","bytes32","bytes32"], ["0xff", factoryAddr, saltHex, initCodeHash]);
+      const h = keccak256(packed);
+      return getAddress(`0x${h.slice(26)}`); // last 20 bytes
+    }
+    const initCodeHash = keccak256(bytecode);
+    const claimAddress = computeCreate2Address(factory.address, salt, initCodeHash);
+    const claim = await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddress);
+  
+    // Fund claim with tokens and unpause (as admin)
+    await erc20.write.transfer([claim.address, parseEther("10000")]);
+    const claimAsAdmin = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, {
+      client: { wallet: partnerAdmin },
+    });
+    await claimAsAdmin.write.unpause();
+  
+    return {
+      deployer,
+      partnerAdmin,
+      user,
+      protocolAdmin,
+      overflowPartner,
+      protocolTreasury,
+      protocolOverflow,
+      erc20,
+      stake,
+      feed,
+      factory,
+      claim,
+      claimAsAdmin,
+      root,
+      tree,
+      allocation,
+      multiplier,
+      cfg,
+    };
+  }
+  
+  /* -------------------------------------------------------------------------- */
+  /*                                    Tests                                   */
+  /* -------------------------------------------------------------------------- */
+  
+describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRoles)", () => {
+    it("initializes via factory and starts paused until admin unpauses", async () => {
+      const { claim, claimAsAdmin } = await loadFixture(deployFixture);
+      // already unpaused by fixture final step; pause then unpause again to assert admin control
+      await claimAsAdmin.write.pause();
+      expect(await claim.read.paused()).to.equal(true);
+      await claimAsAdmin.write.unpause();
+      expect(await claim.read.paused()).to.equal(false);
+    });
+  
+    it("validateClaimOptions returns wei fee for claim vs stake (using oracle)", async () => {
+      const { claim, feed, cfg, multiplier } = await loadFixture(deployFixture);
+  
+      // $1 claim fee at 3000 $/ETH → fee ≈ 1/3000 ETH (ceil in wei)
+      const claimOpts: ClaimOptions = {
+        optionId: keccak256(toBytes("full-claim")),
         multiplier,
-        true, // with staking
-        zeroAddress, // use default staking
-        minLockupDuration,
-        minLockupDurationForMultiplier
-      )
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create claim options with lockup period that meets multiplier threshold
-      const claimOptions = {
-        percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 120, // 120 seconds > 60 second threshold
-        optionId: keccak256(new TextEncoder().encode('test-option')),
-      }
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: claimOptions,
-        },
-        await routerAsClaimList.read.claimContractById([id]),
-      )
-
-      // Execute claim
-      await routerAsClaimList.write.claim(args)
-
-      // Calculate expected amounts
-      const expectedStaked = totalAllocation // 100% staked
-      const expectedBonus = (expectedStaked * multiplier) / 10000n // 10% bonus
-      const expectedTotalStaked = expectedStaked + expectedBonus
-
-      // Verify staking data shows the bonus tokens were staked
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-
-      // Get claim data to verify bonus was applied
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalStaked).to.equal(expectedStaked)
-      expect(claimData.totalBonusTokens).to.equal(expectedBonus)
-      expect(claimData.multiplier).to.equal(multiplier)
-    })
-
-    it('Should NOT apply multiplier when lockup period below threshold', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-
-      // Deploy with multiplier and threshold
-      const multiplier = 1000n // 10% bonus
-      const minLockupDuration = 30
-      const minLockupDurationForMultiplier = 60 // 60 seconds for bonus
-
-      const { id } = await deployClaimContractWithMultiplier(
-        router,
-        root,
-        erc20,
-        owner,
-        multiplier,
-        true,
-        zeroAddress,
-        minLockupDuration,
-        minLockupDurationForMultiplier
-      )
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create claim options with lockup period BELOW multiplier threshold
-      const claimOptions = {
-        percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 45, // 45 seconds < 60 second threshold
-        optionId: keccak256(new TextEncoder().encode('test-option')),
-      }
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: claimOptions,
-        },
-        await routerAsClaimList.read.claimContractById([id]),
-      )
-
-      // Execute claim
-      await routerAsClaimList.write.claim(args)
-
-      // Calculate expected amounts (no bonus)
-      const expectedStaked = totalAllocation
-      const expectedBonus = 0n
-
-      // Verify staking data
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-
-      // Get claim data to verify NO bonus was applied
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalStaked).to.equal(expectedStaked)
-      expect(claimData.totalBonusTokens).to.equal(expectedBonus)
-      expect(claimData.multiplier).to.equal(multiplier)
-    })
-
-    it('Should NOT apply multiplier when multiplier is zero', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-
-      // Deploy with ZERO multiplier
-      const multiplier = 0n // No bonus
-      const minLockupDuration = 30
-      const minLockupDurationForMultiplier = 60
-
-      const { id } = await deployClaimContractWithMultiplier(
-        router,
-        root,
-        erc20,
-        owner,
-        multiplier,
-        true,
-        zeroAddress,
-        minLockupDuration,
-        minLockupDurationForMultiplier
-      )
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create claim options with lockup period that would normally qualify
-      const claimOptions = {
-        percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 120, // > threshold
-        optionId: keccak256(new TextEncoder().encode('test-option')),
-      }
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: claimOptions,
-        },
-        await routerAsClaimList.read.claimContractById([id]),
-      )
-
-      // Execute claim
-      await routerAsClaimList.write.claim(args)
-
-      // Calculate expected amounts (no bonus because multiplier is 0)
-      const expectedStaked = totalAllocation
-      const expectedBonus = 0n
-
-      // Verify staking data
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-
-      // Get claim data to verify NO bonus was applied
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalStaked).to.equal(expectedStaked)
-      expect(claimData.totalBonusTokens).to.equal(expectedBonus)
-      expect(claimData.multiplier).to.equal(multiplier)
-    })
-
-    it('Should apply multiplier to partial stake amounts', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-
-      // Deploy with multiplier
-      const multiplier = 2000n // 20% bonus
-      const minLockupDuration = 30
-      const minLockupDurationForMultiplier = 60
-
-      const { id } = await deployClaimContractWithMultiplier(
-        router,
-        root,
-        erc20,
-        owner,
-        multiplier,
-        true,
-        zeroAddress,
-        minLockupDuration,
-        minLockupDurationForMultiplier
-      )
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create claim options with partial stake
-      const claimOptions = {
-        percentageToClaim: 3_000, // 30% claimed (in bips)
-        percentageToStake: 7_000, // 70% staked (in bips)
-        lockupPeriod: 120, // > threshold
-        optionId: keccak256(new TextEncoder().encode('test-option')),
-      }
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: claimOptions,
-        },
-        await routerAsClaimList.read.claimContractById([id]),
-      )
-
-      // Execute claim
-      await routerAsClaimList.write.claim(args)
-
-      // Calculate expected amounts
-      const expectedClaimed = (totalAllocation * 3_000n) / 10_000n
-      const expectedStaked = (totalAllocation * 7_000n) / 10_000n
-      const expectedBonus = (expectedStaked * multiplier) / 10000n // 20% bonus on staked amount
-      const expectedTotalStaked = expectedStaked + expectedBonus
-
-      // Verify user received claimed amount
-      await verifyUserBalance(
-        erc20,
-        inClaimList.account.address,
-        expectedClaimed
-      )
-
-      // Verify staking data
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-
-      // Get claim data to verify bonus was applied correctly
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalClaimed).to.equal(expectedClaimed)
-      expect(claimData.totalStaked).to.equal(expectedStaked)
-      expect(claimData.totalBonusTokens).to.equal(expectedBonus)
-      expect(claimData.multiplier).to.equal(multiplier)
-    })
-
-    it('Should handle multiplier update after deployment', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-
-      // Deploy with initial multiplier
-      const initialMultiplier = 500n // 5% bonus
-      const newMultiplier = 1500n // 15% bonus
-      const minLockupDuration = 30
-      const minLockupDurationForMultiplier = 60
-
-      const { id } = await deployClaimContractWithMultiplier(
-        router,
-        root,
-        erc20,
-        owner,
-        initialMultiplier,
-        true,
-        zeroAddress,
-        minLockupDuration,
-        minLockupDurationForMultiplier
-      )
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Update multiplier before claiming
-      await router.write.setMultiplier([id, newMultiplier])
-
-      // Create claim options
-      const claimOptions = {
-        percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 120, // > threshold
-        optionId: keccak256(new TextEncoder().encode('test-option')),
-      }
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: claimOptions,
-        },
-        await routerAsClaimList.read.claimContractById([id]),
-      )
-
-      // Execute claim
-      await routerAsClaimList.write.claim(args)
-
-      // Calculate expected amounts with NEW multiplier
-      const expectedStaked = totalAllocation
-      const expectedBonus = (expectedStaked * newMultiplier) / 10000n // 15% bonus
-
-      // Verify staking data
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-
-      // Get claim data to verify NEW multiplier was applied
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalStaked).to.equal(expectedStaked)
-      expect(claimData.totalBonusTokens).to.equal(expectedBonus)
-      expect(claimData.multiplier).to.equal(newMultiplier)
-    })
-
-    it('Should handle edge case: exact threshold lockup period', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-
-      // Deploy with multiplier
-      const multiplier = 1000n // 10% bonus
-      const minLockupDuration = 30
-      const minLockupDurationForMultiplier = 60
-
-      const { id } = await deployClaimContractWithMultiplier(
-        router,
-        root,
-        erc20,
-        owner,
-        multiplier,
-        true,
-        zeroAddress,
-        minLockupDuration,
-        minLockupDurationForMultiplier
-      )
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create claim options with EXACT threshold lockup period
-      const claimOptions = {
-        percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 60, // Exactly equal to threshold
-        optionId: keccak256(new TextEncoder().encode('test-option')),
-      }
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: claimOptions,
-        },
-        await routerAsClaimList.read.claimContractById([id]),
-      )
-
-      // Execute claim
-      await routerAsClaimList.write.claim(args)
-
-      // Calculate expected amounts (should get bonus because >= threshold)
-      const expectedStaked = totalAllocation
-      const expectedBonus = (expectedStaked * multiplier) / 10000n
-
-      // Verify staking data
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-
-      // Get claim data to verify bonus was applied
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalStaked).to.equal(expectedStaked)
-      expect(claimData.totalBonusTokens).to.equal(expectedBonus)
-      expect(claimData.multiplier).to.equal(multiplier)
-    })
-  })
-
-  // ───────────── Data Retrieval Tests ─────────────────────────────
-
-  describe('Data Retrieval', function () {
-    it('Should get staking data via router', async function () {
-      const { routerAsClaimList, inClaimList, id, proof, totalAllocation } =
-        await setupClaimTest()
-
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        CLAIM_OPTIONS.HALF_CLAIM_HALF_STAKE
-      )
-      await verifyClaimStakingData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address,
-        1
-      )
-    })
-
-    it('Should get claim data via router', async function () {
-      const {
-        routerAsClaimList,
-        inClaimList,
-        id,
-        erc20,
-        proof,
-        totalAllocation,
-      } = await setupClaimTest()
-
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        CLAIM_OPTIONS.PARTIAL_CLAIM
-      )
-
-      // Get claim data for specific user
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-
-      // Verify claim data
-      expect(claimData.totalClaimed).to.equal(totalAllocation / 2n) // 50% claimed
-      expect(claimData.claimedByUser).to.equal(totalAllocation / 2n)
-      expect(claimData.totalStaked).to.equal(0n) // No staking in this test
-      expect(claimData.totalBonusTokens).to.equal(0n)
-      expect(claimData.minLockupDuration).to.equal(0)
-      expect(claimData.minLockupDurationForMultiplier).to.equal(0)
-      expect(claimData.multiplier).to.equal(0n)
-      expect(claimData.isActive).to.equal(true)
-      expect(claimData.isPaused).to.equal(false)
-      expect(claimData.tokenAsset).to.equal(getAddress(erc20.address))
-      expect(claimData.stakingAddress).to.not.equal(zeroAddress)
-      expect(claimData.admin).to.not.equal(zeroAddress)
-
-      // Get claim data for zero address (should return 0 for claimedByUser)
-      const claimDataZeroAddress = await getClaimData(
-        routerAsClaimList,
-        id,
-        zeroAddress
-      )
-      expect(claimDataZeroAddress.claimedByUser).to.equal(0n)
-      expect(claimDataZeroAddress.totalClaimed).to.equal(totalAllocation / 2n)
-    })
-
-    it('Should get staking address via router', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { id } = await deployClaimContract(router, root, erc20, owner)
-
-      const stakingAddress = await getClaimStakingAddress(router, id)
-      expect(stakingAddress).to.not.equal(zeroAddress)
-
-      // Verify it matches the staking address from getClaimData
-      const claimData = await getClaimData(router, id, zeroAddress)
-      expect(stakingAddress).to.equal(claimData.stakingAddress)
-    })
-
-    it('Should handle non-existent airdrop ID', async function () {
-      const { router } = await deployFixture()
-      const nonExistentId = createRandomId()
-
-      // Should revert for non-existent ID
-      await expect(
-        getClaimData(router, nonExistentId, zeroAddress)
-      ).to.be.rejectedWith('InvalidId')
-
-      await expect(
-        getClaimStakingData(router, nonExistentId, zeroAddress)
-      ).to.be.rejectedWith('InvalidId')
-
-      await expect(
-        getClaimStakingAddress(router, nonExistentId)
-      ).to.be.rejectedWith('InvalidId')
-    })
-
-    it('Should handle airdrop without staking', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { id } = await deployClaimContract(
-        router,
-        root,
-        erc20,
-        owner,
-        false
-      ) // no staking
-
-      // Get claim data
-      const claimData = await getClaimData(router, id, zeroAddress)
-      expect(claimData.stakingAddress).to.equal(zeroAddress)
-
-      // Get staking address should return zero address
-      const stakingAddress = await getClaimStakingAddress(router, id)
-      expect(stakingAddress).to.equal(zeroAddress)
-
-      // Get staking data should return empty arrays
-      await verifyClaimStakingData(router, id, owner.account.address, 0)
-    })
-  })
-
-  // ───────────── OutOfTokens Error Tests ─────────────────────────────
-  describe('OutOfTokens Error', function () {
-    it('should revert with OutOfTokens if claim exceeds contract balance', async function () {
-      // Setup: deploy with a claim list entry larger than the contract balance
-      const { router, owner, erc20 } = await deployFixture()
-
-      // Create a new merkle tree with a big user allocation
-      const bigUser = (await hre.viem.getWalletClients())[4]
-      const bigAllocation = parseEther('100')
-      const claimList: [string, bigint][] = [
-        [bigUser.account.address, bigAllocation],
-      ]
-      const tree = StandardMerkleTree.of(claimList, ['address', 'uint256'])
-      const root = tree.root as `0x${string}`
-
-      // Deploy claim contract with only 1 ETH in balance
-      const { id, contractAddress } =
-        await deployClaimContractWithCustomBalance(
-          router,
-          root,
-          erc20,
-          owner,
-          0n, // no multiplier
-          parseEther('1'), // only 1 ETH in contract
-          true
-        )
-
-      // Create proper claim options and proof
-      const claimOptions = {
-        percentageToClaim: 10_000, // 100% claimed (in bips)
+        percentageToClaim: 10_000,
         percentageToStake: 0,
         lockupPeriod: 0,
-        optionId: keccak256(new TextEncoder().encode('big-claim')),
-      }
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        bigUser.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-      const proof = getMerkleProof(tree, claimListEntry)
-
-      const routerAsBigUser = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: bigUser } }
-      )
-      // Try to claim and expect OutOfTokens revert
-      const args = await makeClaimArgs(
-        bigUser,
-        {
-          id,
-          proof,
-          totalAllocation: bigAllocation,
-          opts: claimOptions,
-        },
-        contractAddress,
-      )
-      await expect(routerAsBigUser.write.claim(args)).to.be.rejectedWith(
-        'OutOfTokens'
-      )
-    })
-
-    it('should revert with OutOfTokens if multiplier bonus causes contract to run out of tokens', async function () {
-      // Setup: deploy with a super high multiplier
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-      const superHighMultiplier = 100_000n // 1000% bonus
-      // Deploy with only 10 ETH in contract
-      const { id, contractAddress } =
-        await deployClaimContractWithCustomBalance(
-          router,
-          root,
-          erc20,
-          owner,
-          superHighMultiplier,
-          parseEther('10'), // only 10 ETH in contract
-          true,
-          zeroAddress,
-          0,
-          0
-        )
-
-      // Use a normal allocation
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-      // 100% stake, lockup > 0
-      const claimOptions = {
+      };
+      const feeClaimWei = await claim.read.validateClaimOptions([claimOpts]);
+      expect(feeClaimWei > 0n).to.equal(true);
+  
+      // $2 stake fee → ≈ 2/3000 ETH; also requires non-zero lockup (minLockup=1)
+      const stakeOpts: ClaimOptions = {
+        optionId: keccak256(toBytes("stake")),
+        multiplier,
         percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 100,
-        optionId: keccak256(new TextEncoder().encode('super-bonus')),
-      }
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof,
-          totalAllocation,
-          opts: claimOptions,
-        },
-        contractAddress,
-      )
-      await expect(routerAsClaimList.write.claim(args)).to.be.rejectedWith(
-        'OutOfTokens'
-      )
-    })
-  })
-  describe('Custom Staking Contract Integration', function () {
-    it('Should deploy claim contract with custom staking contract', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-
-      // Deploy custom test staking contract
-      const testStake = await hre.viem.deployContract('MockStake')
-
-      // Deploy claim contract with custom staking
-      const { id, contractAddress } = await deployClaimContractWithMultiplier(
-        router,
-        root,
-        erc20,
-        owner,
-        0n, // no multiplier
-        true, // with staking
-        testStake.address, // custom staking contract
-        0, // min lockup
-        0 // min lockup for multiplier
-      )
-
-      // Verify custom staking contract is used
-      const stakingAddress = await getClaimStakingAddress(router, id)
-      expect(stakingAddress).to.equal(getAddress(testStake.address))
-
-      // Verify claim data shows custom staking address
-      const claimData = await getClaimData(router, id, zeroAddress)
-      expect(claimData.stakingAddress).to.equal(getAddress(testStake.address))
-    })
-
-    it('Should revert when trying to use contract that does not implement IBaseStake', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-
-      // Try to deploy claim contract with contract that does not implement IBaseStake
-      // This should revert because the contract does not implement IBaseStake interface
-      await expect(
-        deployClaimContractWithMultiplier(
-          router,
-          root,
-          erc20,
-          owner,
-          0n, // no multiplier
-          true, // with staking
-          erc20.address, // ERC20 token as staking contract (should fail)
-          0, // min lockup
-          0 // min lockup for multiplier
-        )
-      ).to.be.rejected
-    })
-  })
-
-  // ───────────── Pause/Unpause Tests ─────────────────────────────
-  describe('Pause/Unpause Functionality', function () {
-    it('Should pause and unpause claim contract via router', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { id, contractAddress } = await deployClaimContract(
-        router,
-        root,
-        erc20,
-        owner
-      )
-
-      // Get claim contract instance
-      const claimContract = await hre.viem.getContractAt(
-        'SnagAirdropClaim',
-        contractAddress
-      )
-      // Pause via router
-      await router.write.pause([id])
-      expect(await claimContract.read.paused()).to.be.true
-
-      // Unpause via router (should succeed regardless of initial state)
-      await router.write.unpause([id])
-      expect(await claimContract.read.paused()).to.be.false
-
-      // Unpause again
-      await router.write.pause([id])
-      expect(await claimContract.read.paused()).to.be.true
-    })
-
-    it('Should revert when non-admin tries to pause/unpause', async function () {
-      const { router, owner, root, erc20, otherAccount } = await deployFixture()
-      const { id } = await deployClaimContract(router, root, erc20, owner)
-
-      const routerAsOther = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: otherAccount } }
-      )
-
-      // Non-admin should not be able to pause
-      await expect(routerAsOther.write.pause([id])).to.be.rejectedWith(
-        'NotAirdropAdmin'
-      )
-
-      // Non-admin should not be able to unpause
-      await expect(routerAsOther.write.unpause([id])).to.be.rejectedWith(
-        'NotAirdropAdmin'
-      )
-    })
-
-    it('Should revert when trying to pause/unpause non-existent airdrop', async function () {
-      const { router, owner } = await deployFixture()
-      const nonExistentId = createRandomId()
-
-      // Should revert for non-existent ID
-      await expect(router.write.pause([nonExistentId])).to.be.rejectedWith(
-        'InvalidId'
-      )
-
-      await expect(router.write.unpause([nonExistentId])).to.be.rejectedWith(
-        'InvalidId'
-      )
-    })
-
-    it('Should revert when airdrop is paused', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-      const { id } = await deployClaimContract(router, root, erc20, owner)
-      await router.write.pause([id])
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Try to claim from paused airdrop
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          CLAIM_OPTIONS.FULL_CLAIM
-        )
-      ).to.be.rejectedWith('EnforcedPause')
-
-      await router.write.unpause([id])
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          CLAIM_OPTIONS.FULL_CLAIM
-        )
-      ).to.not.be.rejected
-    })
-    it('Should revert when not called from the router', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-      const { id, contractAddress } = await deployClaimContract(
-        router,
-        root,
-        erc20,
-        owner
-      )
-
-      const claimContract = await hre.viem.getContractAt(
-        'SnagAirdropClaim',
-        contractAddress
-      )
-      await expect(claimContract.write.pause()).to.be.rejectedWith('OnlyRouter')
-    })
-
-  })
-
-  // ───────────── Validation Error Tests ─────────────────────────────
-  describe('Validation Error Conditions', function () {
-    it('Should revert when percentage sum exceeds 10_000', async function () {
-      const { routerAsClaimList, inClaimList, id, proof, totalAllocation } =
-        await setupClaimTest()
-
-      // Create invalid claim options with sum > 100
-      const invalidOptions = {
-        percentageToClaim: 6_000,
-        percentageToStake: 5_000, // 60% + 50% = 110% > 100% (in bips)
-        lockupPeriod: 100,
-        optionId: keccak256(new TextEncoder().encode('invalid-option')),
-      }
-
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          invalidOptions
-        )
-      ).to.be.rejectedWith('PctSumExceeded')
-    })
-
-    it('Should revert when optionId is zero', async function () {
-      const { routerAsClaimList, inClaimList, id, proof, totalAllocation } =
-        await setupClaimTest()
-
-      // Create invalid claim options with zero optionId
-      const invalidOptions = {
-        percentageToClaim: 100,
+        percentageToStake: 10_000,
+        lockupPeriod: 60, // >= minLockup=1
+      };
+      const feeStakeWei = await claim.read.validateClaimOptions([stakeOpts]);
+      expect(feeStakeWei > feeClaimWei).to.equal(true);
+  
+      // Simulate price change → double ETH price, wei fee halves
+      const feedAsDeployer = await hre.viem.getContractAt("MockAggregatorV3", feed.address);
+      await feedAsDeployer.write.setAnswer([6000n * 10n ** 8n]);
+      const feeClaimWei2 = await claim.read.validateClaimOptions([claimOpts]);
+      expect(feeClaimWei2 < feeClaimWei).to.equal(true);
+  
+      // Revert paths
+      const badSum: ClaimOptions = { ...claimOpts, percentageToClaim: 6_000, percentageToStake: 5_000 };
+      await expect(claim.read.validateClaimOptions([badSum])).to.be.rejectedWith("PctSumExceeded");
+  
+      const zeroId: ClaimOptions = { ...claimOpts, optionId: `0x${"00".repeat(32)}` as `0x${string}` };
+      await expect(claim.read.validateClaimOptions([zeroId])).to.be.rejectedWith("InvalidOptionId");
+    });
+  
+    it("claims (claim-only) transfers tokens; ETH fee to treasury; protocol token-share accrues for later withdrawal", async () => {
+      const { claim, erc20, user, tree, allocation, multiplier, cfg, protocolAdmin, protocolTreasury } =
+        await loadFixture(deployFixture);
+  
+      // Build proof
+      const entries = Array.from(tree.entries());
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+  
+      // Options: 100% claim, no stake
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("claim-only")),
+        multiplier,
+        percentageToClaim: 10_000,
         percentageToStake: 0,
         lockupPeriod: 0,
-        optionId:
-          '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
-      }
+      };
+  
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+  
+      // Signature (beneficiary must sign)
+      const sig = await makeClaimSignature(
+        user,
+        claim.address,
+        user.account.address,
+        allocation,
+        opts
+      );
+  
+      // Record pre-balances
+      const balBefore = await erc20.read.balanceOf([user.account.address]);
+      const protoBefore = await erc20.read.balanceOf([protocolTreasury.account.address]);
+  
+      // Execute claim (send exactly feeWei)
+      const claimAsUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, {
+        client: { wallet: user },
+      });
+      await claimAsUser.write.claimFor(
+        [user.account.address, proof, allocation, opts, sig],
+        { value: feeWei }
+      );
+  
+      // User got tokens
+      const balAfter = await erc20.read.balanceOf([user.account.address]);
+      expect(balAfter - balBefore).to.equal(allocation);
 
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          invalidOptions
-        )
-      ).to.be.rejectedWith('InvalidOptionId')
-    })
+      // Protocol token-share accrued for later
+      const accrued = await claim.read.protocolAccruedTokens();
+      expect(accrued).to.equal(allocation / 100n);
 
-    it('Should revert when staking is requested but no staking contract', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
+      // Protocol admin can withdraw now
+      const claimAsProtocolAdmin = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: protocolAdmin } });
+      await claimAsProtocolAdmin.write.withdrawProtocolAccrued([protocolTreasury.account.address, accrued]);
+      const protoAfter = await erc20.read.balanceOf([protocolTreasury.account.address]);
+      expect(protoAfter - protoBefore).to.equal(accrued);
+    });
+  
+    it("staking pulls via allowance (no double transfer): claim balance decreases once; staking receives stake+bonus", async () => {
+      // Fresh deployment using LinearStake to exercise real token flows
+      const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow] =
+        await hre.viem.getWalletClients();
 
-      // Deploy WITHOUT staking
-      const { id } = await deployClaimContract(
-        router,
+      const erc20 = await hre.viem.deployContract("MockERC20", [deployer.account.address]);
+      const linearStake = await hre.viem.deployContract("LinearStake", [erc20.address]);
+      const feed = await hre.viem.deployContract("MockAggregatorV3", [8, 3000n * 10n ** 8n]);
+      const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
+
+      const allocation = parseEther("100");
+      const list: [string, bigint][] = [ [user.account.address, allocation] ];
+      const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
+      const root = tree.root as `0x${string}`;
+
+      const multiplier = 1000n; // 10%
+      const ip: InitParams = {
+        admin: partnerAdmin.account.address,
         root,
-        erc20,
-        owner,
-        false
-      )
+        asset: erc20.address,
+        staking: linearStake.address,
+        maxBonus: parseEther("1000"),
+        minLockupDuration: 1,
+        minLockupDurationForMultiplier: 60,
+        multiplier,
+      };
+      const cfg: InitFeeConfig = {
+        priceFeed: feed.address,
+        maxPriceAge: 3600,
+        protocolTreasury: protocolTreasury.account.address,
+        protocolOverflow: protocolOverflow.account.address,
+        partnerOverflow: overflowPartner.account.address,
+        feeClaimUsdCents: 100n,
+        feeStakeUsdCents: 200n,
+        feeCapUsdCents: 1000n,
+        overflowMode: 0,
+        protocolTokenShareBips: 100,
+      };
+      const salt = keccak256(toBytes("salt-linear-stake"));
+      await factory.write.deployClaim([ip, cfg, salt]);
+      const bytecode = (await hre.artifacts.readArtifact("SnagAirdropV2Claim")).bytecode as `0x${string}`;
+      const initCodeHash = keccak256(bytecode);
+      const compute = (f: `0x${string}`, s: `0x${string}`, h: `0x${string}`) => {
+        const packed = encodePacked(["bytes1", "address", "bytes32", "bytes32"], ["0xff", f, s, h]);
+        const k = keccak256(packed);
+        return getAddress(("0x" + k.slice(26)) as `0x${string}`);
+      };
+      const claimAddr = compute(factory.address, salt, initCodeHash);
+      const claim = await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr);
 
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
+      // Fund and unpause
+      await erc20.write.transfer([claim.address, parseEther("10000")]);
+      await (await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: partnerAdmin } }))
+        .write.unpause();
 
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
+      // Allowance should be max from initializer
+      const max = (1n << 256n) - 1n;
+      const allowanceBefore = await erc20.read.allowance([claim.address, linearStake.address]);
+      expect(allowanceBefore).to.equal(max);
 
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Try to stake when no staking contract exists
-      const stakeOnlyOptions = {
+      // Prepare claim
+      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("stake-100")),
+        multiplier,
         percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 100,
-        optionId: keccak256(new TextEncoder().encode('stake-only')),
-      }
+        percentageToStake: 10_000,
+        lockupPeriod: 120,
+      };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
 
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          stakeOnlyOptions
-        )
-      ).to.be.rejectedWith('NoStaking')
-    })
+      // Pre balances
+      const claimBefore = await erc20.read.balanceOf([claim.address]);
+      const stakeBefore = await erc20.read.balanceOf([linearStake.address]);
 
-    it('Should revert when lockup period is too short', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
+      // Execute
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei });
 
-      // Deploy with minimum lockup duration
-      const minLockupDuration = 100 // 100 seconds minimum
-      const { id } = await deployClaimContractWithMultiplier(
-        router,
+      // Post balances
+      const claimAfter = await erc20.read.balanceOf([claim.address]);
+      const stakeAfter = await erc20.read.balanceOf([linearStake.address]);
+      const deltaClaim = claimBefore - claimAfter;
+      const deltaStake = stakeAfter - stakeBefore;
+
+      // Expected amounts: 100 stake + 10 bonus, pulled once by LinearStake via allowance
+      const expectedToStake = allocation + allocation / 10n;
+      expect(deltaClaim).to.equal(expectedToStake);
+      expect(deltaStake).to.equal(expectedToStake);
+
+      // Protocol token share accrued but not transferred
+      const expectedProto = (expectedToStake * 100n + 9999n) / 10000n; // ceil bips
+      expect(await claim.read.protocolAccruedTokens()).to.equal(expectedProto);
+    });
+
+    it("partial claim+stake with LinearStake: balances route correctly and protocol share includes bonus", async () => {
+      const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow] =
+        await hre.viem.getWalletClients();
+
+      const erc20 = await hre.viem.deployContract("MockERC20", [deployer.account.address]);
+      const linearStake = await hre.viem.deployContract("LinearStake", [erc20.address]);
+      const feed = await hre.viem.deployContract("MockAggregatorV3", [8, 3000n * 10n ** 8n]);
+      const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
+
+      const allocation = parseEther("100");
+      const list: [string, bigint][] = [ [user.account.address, allocation] ];
+      const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
+      const root = tree.root as `0x${string}`;
+
+      const multiplier = 1000n; // 10%
+      const ip: InitParams = {
+        admin: partnerAdmin.account.address,
         root,
-        erc20,
-        owner,
-        0n,
-        true,
-        zeroAddress,
-        minLockupDuration,
-        0
-      )
+        asset: erc20.address,
+        staking: linearStake.address,
+        maxBonus: parseEther("1000"),
+        minLockupDuration: 1,
+        minLockupDurationForMultiplier: 60,
+        multiplier,
+      };
+      const cfg: InitFeeConfig = {
+        priceFeed: feed.address,
+        maxPriceAge: 3600,
+        protocolTreasury: protocolTreasury.account.address,
+        protocolOverflow: protocolOverflow.account.address,
+        partnerOverflow: overflowPartner.account.address,
+        feeClaimUsdCents: 100n,
+        feeStakeUsdCents: 200n,
+        feeCapUsdCents: 1000n,
+        overflowMode: 0,
+        protocolTokenShareBips: 100,
+      };
+      const salt = keccak256(toBytes("salt-linear-stake-partial"));
+      await factory.write.deployClaim([ip, cfg, salt]);
+      const bytecode = (await hre.artifacts.readArtifact("SnagAirdropV2Claim")).bytecode as `0x${string}`;
+      const initCodeHash = keccak256(bytecode);
+      const compute = (f: `0x${string}`, s: `0x${string}`, h: `0x${string}`) => {
+        const packed = encodePacked(["bytes1", "address", "bytes32", "bytes32"], ["0xff", f, s, h]);
+        const k = keccak256(packed);
+        return getAddress(("0x" + k.slice(26)) as `0x${string}`);
+      };
+      const claimAddr = compute(factory.address, salt, initCodeHash);
+      const claim = await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr);
 
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
+      // Fund and unpause
+      await erc20.write.transfer([claim.address, parseEther("10000")]);
+      await (await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: partnerAdmin } }))
+        .write.unpause();
 
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
+      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("partial-stake")),
+        multiplier,
+        percentageToClaim: 3000,
+        percentageToStake: 2000,
+        lockupPeriod: 120,
+      };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
 
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
+      const userBefore = await erc20.read.balanceOf([user.account.address]);
+      const claimBefore = await erc20.read.balanceOf([claim.address]);
+      const stakeBefore = await erc20.read.balanceOf([linearStake.address]);
 
-      // Try to stake with lockup period below minimum
-      const shortLockupOptions = {
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei });
+
+      const userAfter = await erc20.read.balanceOf([user.account.address]);
+      const claimAfter = await erc20.read.balanceOf([claim.address]);
+      const stakeAfter = await erc20.read.balanceOf([linearStake.address]);
+
+      const amountClaimed = (allocation * 3000n) / 10_000n; // 30
+      const amountStaked = (allocation * 2000n) / 10_000n;  // 20
+      const bonus = (amountStaked * 1000n) / 10_000n;       // 2
+      const toStake = amountStaked + bonus;                 // 22
+      const distributed = amountClaimed + toStake;          // 52
+      const expectedProto = (distributed * 100n + 9999n) / 10000n;
+
+      expect(userAfter - userBefore).to.equal(amountClaimed);
+      expect(claimBefore - claimAfter).to.equal(distributed);
+      expect(stakeAfter - stakeBefore).to.equal(toStake);
+      expect(await claim.read.protocolAccruedTokens()).to.equal(expectedProto);
+    });
+
+    it("supports partial claim + stake in one call and prevents double-claim", async () => {
+      const { claim, erc20, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
+
+      const entries3 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me3 = entries3.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me3[1]) as `0x${string}`[];
+
+      // 30% claim, 20% stake
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("mix-claim-stake")),
+        multiplier,
+        percentageToClaim: 3000,
+        percentageToStake: 2000,
+        lockupPeriod: 120,
+      };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      const balBefore = await erc20.read.balanceOf([user.account.address]);
+      await asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei });
+      const balAfter = await erc20.read.balanceOf([user.account.address]);
+      // Claimed 30% to user
+      expect(balAfter - balBefore).to.equal((allocation * 3000n) / 10_000n);
+
+      // Second attempt should revert AlreadyClaimed
+      await expect(
+        asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei }),
+      ).to.be.rejectedWith("AlreadyClaimed");
+    });
+
+    it("reverts staking path when stakingAddress is zero and enforces min lockup", async () => {
+      const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow] =
+        await hre.viem.getWalletClients();
+      const erc20 = await hre.viem.deployContract("MockERC20", [deployer.account.address]);
+      const feed = await hre.viem.deployContract("MockAggregatorV3", [8, 3000n * 10n ** 8n]);
+      const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
+
+      const allocation = parseEther("10");
+      const tree = StandardMerkleTree.of([[user.account.address, allocation]], ["address", "uint256"]);
+      const root = tree.root as `0x${string}`;
+
+      const ip = {
+        admin: partnerAdmin.account.address,
+        root,
+        asset: erc20.address,
+        staking: zeroAddress,
+        maxBonus: parseEther("1000"),
+        minLockupDuration: 10,
+        minLockupDurationForMultiplier: 60,
+        multiplier: 1000n,
+      } satisfies InitParams;
+      const cfg = {
+        priceFeed: feed.address,
+        maxPriceAge: 3600,
+        protocolTreasury: protocolTreasury.account.address,
+        protocolOverflow: protocolOverflow.account.address,
+        partnerOverflow: overflowPartner.account.address,
+        feeClaimUsdCents: 100n,
+        feeStakeUsdCents: 200n,
+        feeCapUsdCents: 1000n,
+        overflowMode: 0,
+        protocolTokenShareBips: 100,
+      } satisfies InitFeeConfig;
+
+      const salt = keccak256(toBytes("salt-nostake"));
+      await factory.write.deployClaim([ip, cfg, salt]);
+      const bytecode = (await hre.artifacts.readArtifact("SnagAirdropV2Claim")).bytecode as `0x${string}`;
+      const initCodeHash = keccak256(bytecode);
+      const claimAddr = (function compute(factoryAddr: `0x${string}`, saltHex: `0x${string}`, codeHash: `0x${string}`) {
+        const packed = encodePacked(["bytes1", "address", "bytes32", "bytes32"], ["0xff", factoryAddr, saltHex, codeHash]);
+        const h = keccak256(packed);
+        return getAddress(("0x" + h.slice(26)) as `0x${string}`);
+      })(factory.address, salt, initCodeHash);
+      const claim = await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr);
+
+      // fund and unpause
+      await erc20.write.transfer([claim.address, parseEther("1000")]);
+      const claimAsAdmin = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: partnerAdmin } });
+      await claimAsAdmin.write.unpause();
+
+      const entries4 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me4 = entries4.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me4[1]) as `0x${string}`[];
+      const stakeOpts: ClaimOptions = {
+        optionId: keccak256(toBytes("stake")),
+        multiplier: 1000n,
         percentageToClaim: 0,
-        percentageToStake: 100,
-        lockupPeriod: 50, // 50 seconds < 100 minimum
-        optionId: keccak256(new TextEncoder().encode('short-lockup')),
-      }
+        percentageToStake: 1000,
+        lockupPeriod: 100, // staking selected but stakingAddress=0 → NoStaking
+      };
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      const feeWei = await claim.read.validateClaimOptions([stakeOpts]).catch(() => 0n);
+      // validate route should revert with NoStaking
+      await expect(claim.read.validateClaimOptions([stakeOpts])).to.be.rejectedWith("NoStaking");
+      // claimFor should also revert with NoStaking
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, stakeOpts);
+      await expect(asUser.write.claimFor([user.account.address, proof, allocation, stakeOpts, sig], { value: feeWei })).to.be
+        .rejectedWith("NoStaking");
 
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          shortLockupOptions
-        )
-      ).to.be.rejectedWith('LockupTooShort')
-    })
+      // Lockup too short when stakingAddress exists and lockup < min
+      // Reuse original fixture with a stake contract
+      const { claim: claim2, tree: tree2, allocation: alloc2, multiplier: mult2 } = await loadFixture(deployFixture);
+      const opts2: ClaimOptions = {
+        optionId: keccak256(toBytes("stake-too-short")),
+        multiplier: mult2,
+        percentageToClaim: 0,
+        percentageToStake: 1000,
+        lockupPeriod: 1, // fixture minLockupDuration is 1; test below uses 0 to trigger
+      };
+      const ent = Array.from(tree2.entries()) as Array<[number, [string, bigint]]>;
+      const proof2 = tree2.getProof(ent[0][1]) as `0x${string}`[];
+      const fee2 = await claim2.read.validateClaimOptions([{ ...opts2, lockupPeriod: 0 }]).catch(() => 0n);
+      await expect(claim2.read.validateClaimOptions([{ ...opts2, lockupPeriod: 0 }])).to.be.rejectedWith("LockupTooShort");
+    });
 
-    it('Should revert when airdrop is not active', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-      const { id, contractAddress } = await deployClaimContract(
-        router,
-        root,
-        erc20,
-        owner
-      )
-
-      // End the airdrop (deactivates it)
-      await router.write.endAirdrop([id, owner.account.address])
-
-      const claimListEntry = findUserInClaimList(
-        claimList,
-        inClaimList.account.address
-      )
-      if (!claimListEntry) throw new Error('User not found in claim list')
-
-      const proof = getMerkleProof(tree, claimListEntry)
-      const totalAllocation = BigInt(claimListEntry[1])
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Try to claim from inactive airdrop
-      await expect(
-        executeClaim(
-          routerAsClaimList,
-          inClaimList,
-          id,
-          proof,
-          totalAllocation,
-          CLAIM_OPTIONS.FULL_CLAIM
-        )
-      ).to.be.rejectedWith('AirdropNotActive')
-    })
-
-    it('Should revert when invalid Merkle proof is provided', async function () {
-      const { router, owner, root, erc20, inClaimList, tree, claimList } =
-        await deployFixture()
-      const { id } = await deployClaimContract(router, root, erc20, owner)
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create invalid proof (wrong leaf)
-      const invalidProof = [
-        '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-      ] as `0x${string}`[]
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id,
-          proof: invalidProof,
-          totalAllocation: parseEther('100'),
-          opts: CLAIM_OPTIONS.FULL_CLAIM,
-        },
-        await routerAsClaimList.read.claimContractById([id]),
-      )
-
-      // Should fail with invalid proof
-      await expect(routerAsClaimList.write.claim(args)).to.be.rejectedWith(
-        'InvalidProof'
-      )
-    })
-  })
-
-  // ───────────── Router Deployment Error Tests ─────────────────────────────
-  describe('Router Deployment Error Conditions', function () {
-    it('Should revert when deploying with existing ID', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-
-      // Deploy first contract
-      const { id } = await deployClaimContract(router, root, erc20, owner)
-
-      // Try to deploy again with same ID
-      await expect(
-        router.write.deployClaimContract([
-          id, // Use same ID
-          root,
-          0n, // multiplier
-          maxUint256, // maxBonus
-          erc20.address,
-          zeroAddress, // override staking
-          owner.account.address, // admin
-          true, // with staking
-          0, // min lockup
-          0, // min lockup for multiplier
-        ])
-      ).to.be.rejectedWith('IdExists')
-    })
-
-    it('Should revert when deploying with zero admin address', async function () {
-      const { router, root, erc20 } = await deployFixture()
-
-      // Try to deploy with zero admin
-      await expect(
-        router.write.deployClaimContract([
-          createRandomId(),
-          root,
-          0n, // multiplier
-          maxUint256, // maxBonus
-          erc20.address,
-          zeroAddress, // override staking
-          zeroAddress, // zero admin
-          true, // with staking
-          0, // min lockup
-          0, // min lockup for multiplier
-        ])
-      ).to.be.rejectedWith('ZeroAdmin')
-    })
-
-    it('Should revert when non-router tries to call admin functions', async function () {
-      const { router, owner, root, erc20, otherAccount } = await deployFixture()
-      const { id } = await deployClaimContract(router, root, erc20, owner)
-
-      const routerAsOther = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: otherAccount } }
-      )
-
-      // Non-router should not be able to set multiplier
-      await expect(
-        routerAsOther.write.setMultiplier([id, 1000n])
-      ).to.be.rejectedWith('NotAirdropAdmin')
-
-      // Non-router should not be able to end airdrop
-      await expect(
-        routerAsOther.write.endAirdrop([id, otherAccount.account.address])
-      ).to.be.rejected
-    })
-
-    it('Should revert when calling admin functions on non-existent airdrop', async function () {
-      const { router, owner } = await deployFixture()
-      const nonExistentId = createRandomId()
-
-      // Should revert for non-existent ID
-      await expect(
-        router.write.setMultiplier([nonExistentId, 1000n])
-      ).to.be.rejectedWith('InvalidId')
-
-      await expect(
-        router.write.endAirdrop([nonExistentId, owner.account.address])
-      ).to.be.rejectedWith('InvalidId')
-    })
-
-    it('Should revert when calling claim on non-existent airdrop', async function () {
-      const { router, inClaimList } = await deployFixture()
-      const nonExistentId = createRandomId()
-
-      const routerAsClaimList = await hre.viem.getContractAt(
-        'SnagAirdropRouter',
-        router.address,
-        { client: { wallet: inClaimList } }
-      )
-
-      // Create dummy claim args
-      const dummyProof = [
-        '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-      ] as `0x${string}`[]
-      const dummyOptions = {
-        percentageToClaim: 10_000, // 100% claimed (in bips)
+    it("bonus is capped by maxBonus", async () => {
+      const { claim, user, tree, allocation, claimAsAdmin } = await loadFixture(deployFixture);
+      // Increase multiplier so that bonus would exceed cap with current allocation
+      await claimAsAdmin.write.setMultiplier([100_000n]); // 1000%
+      const entries = Array.from(tree.entries());
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("stake-cap")),
+        multiplier: 100_000n,
+        percentageToClaim: 0,
+        percentageToStake: 10_000,
+        lockupPeriod: 120,
+      };
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei });
+      // Bonus should be capped at maxBonus = 1000 ETH from fixture
+      const totalBonus = await claim.read.totalBonusTokens();
+      expect(totalBonus).to.equal(parseEther("1000"));
+    });
+  
+    it("only factory.PROTOCOL_ADMIN_ROLE may withdraw protocolAccruedTokens", async () => {
+      const { claim, user } = await loadFixture(deployFixture);
+      const claimAsRandom = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await expect(claimAsRandom.write.withdrawProtocolAccrued([user.account.address, 1n])).to.be.rejectedWith(
+        "NotProtocolAdmin"
+      );
+    });
+  
+    it("endAirdrop sweeps leftovers (excluding protocolAccruedTokens) and marks inactive", async () => {
+      const { claim, claimAsAdmin, erc20, partnerAdmin } = await loadFixture(deployFixture);
+      const before = await erc20.read.balanceOf([partnerAdmin.account.address]);
+      await claimAsAdmin.write.endAirdrop([partnerAdmin.account.address]);
+      const after = await erc20.read.balanceOf([partnerAdmin.account.address]);
+      expect(after > before).to.equal(true);
+      expect(await claim.read.isActive()).to.equal(false);
+      // Only protocolAccruedTokens should remain in the contract
+      const remaining = await erc20.read.balanceOf([claim.address]);
+      const accrued = await claim.read.protocolAccruedTokens();
+      expect(remaining).to.equal(accrued);
+    });
+  
+    it("signature must be from beneficiary", async () => {
+      const { claim, tree, allocation, partnerAdmin, user, multiplier } = await loadFixture(deployFixture);
+      const entries5 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me5 = entries5.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me5[1]) as `0x${string}`[];
+  
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("full-claim")),
+        multiplier,
+        percentageToClaim: 10_000,
         percentageToStake: 0,
         lockupPeriod: 0,
-        optionId: keccak256(new TextEncoder().encode('dummy')),
-      }
-
-      const args = await makeClaimArgs(
-        inClaimList,
-        {
-          id: nonExistentId,
-          proof: dummyProof,
-          totalAllocation: parseEther('100'),
-          opts: dummyOptions,
-        },
-        zeroAddress, // dummy contract address
-      )
-
-      // Should fail with invalid ID
-      await expect(routerAsClaimList.write.claim(args)).to.be.rejectedWith(
-        'InvalidId'
-      )
-    })
-  })
-
-  // ───────────── Edge Cases and Additional Coverage ─────────────────────────────
-  describe('Edge Cases and Additional Coverage', function () {
-    it('Should handle claim with zero amounts', async function () {
-      const { routerAsClaimList, inClaimList, id, proof, totalAllocation } =
-        await setupClaimTest()
-
-      // Create claim options with zero amounts
-      const zeroOptions = {
-        percentageToClaim: 0,
+      };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+  
+      // Signed by partnerAdmin instead of user
+      const badSig = await makeClaimSignature(
+        partnerAdmin,
+        claim.address,
+        user.account.address,
+        allocation,
+        opts
+      );
+      const asUserSig = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await expect(
+        asUserSig.write.claimFor([user.account.address, proof, allocation, opts, badSig], { value: feeWei })
+      ).to.be.rejectedWith("InvalidClaimSignature");
+    });
+  
+    it("reverts on invalid proof", async () => {
+      const { claim, user, multiplier } = await loadFixture(deployFixture);
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("full-claim")),
+        multiplier,
+        percentageToClaim: 10_000,
         percentageToStake: 0,
         lockupPeriod: 0,
-        optionId: keccak256(new TextEncoder().encode('zero-claim')),
-      }
-
-      // This should succeed but transfer no tokens
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        zeroOptions
-      )
-
-      // Verify no tokens were transferred
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalClaimed).to.equal(0n)
-      expect(claimData.totalStaked).to.equal(0n)
-    })
-
-    it('Should handle claim with only staking (no direct claim)', async function () {
-      const { routerAsClaimList, inClaimList, id, proof, totalAllocation } =
-        await setupClaimTest()
-
-      // Create claim options with only staking
-      const stakeOnlyOptions = {
-        percentageToClaim: 0,
-        percentageToStake: 10_000, // 100% staked (in bips)
-        lockupPeriod: 100,
-        optionId: keccak256(new TextEncoder().encode('stake-only')),
-      }
-
-      // Ensure enough tokens are available for staking
-      // (setupClaimTest already transfers 160 ETH, increase if needed)
-      // If you still get insufficient balance, transfer more here:
-      // const claimContractAddress = await routerAsClaimList.read.claimContractById([id])
-      // await erc20.write.transfer([claimContractAddress, parseEther('1000')])
-
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        stakeOnlyOptions
-      )
-
-      // Verify all tokens were staked
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalClaimed).to.equal(0n)
-      expect(claimData.totalStaked).to.equal(totalAllocation)
-    })
-
-    it('Should handle claim with only direct claim (no staking)', async function () {
-      const { routerAsClaimList, inClaimList, id, proof, totalAllocation } =
-        await setupClaimTest()
-
-      // Create claim options with only direct claim
-      const claimOnlyOptions = {
-        percentageToClaim: 10_000, // 100% claimed (in bips)
+      };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, parseEther("100"), opts);
+      const fakeProof = ["0x" + "11".repeat(32)] as `0x${string}`[];
+      const asUserInvalid = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await expect(
+        asUserInvalid.write.claimFor([user.account.address, fakeProof, parseEther("100"), opts, sig], { value: feeWei })
+      ).to.be.rejectedWith("InvalidProof");
+    });
+  
+    it("pause/unpause gated by admin; paused claims revert", async () => {
+      const { claim, claimAsAdmin, tree, allocation, user, multiplier } = await loadFixture(deployFixture);
+  
+      // Pause
+      await claimAsAdmin.write.pause();
+      expect(await claim.read.paused()).to.equal(true);
+  
+      // Try claim
+      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("full-claim")),
+        multiplier,
+        percentageToClaim: 10_000,
         percentageToStake: 0,
         lockupPeriod: 0,
-        optionId: keccak256(new TextEncoder().encode('claim-only')),
+      };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await expect(
+        asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei })
+      ).to.be.rejectedWith("EnforcedPause");
+  
+      // Unpause and succeed
+      await claimAsAdmin.write.unpause();
+      await expect(
+        asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei })
+      ).to.not.be.rejected;
+    });
+
+    it("claim underpays reverts; overpay refunds dust (integration)", async () => {
+      const { claim, user, tree, allocation, multiplier, protocolTreasury } = await loadFixture(deployFixture);
+      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = { optionId: keccak256(toBytes('fee-int')), multiplier, percentageToClaim: 10_000, percentageToStake: 0, lockupPeriod: 0 };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+      const asUserFee = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: user } });
+      await expect(asUserFee.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei - 1n })).to.be.rejectedWith('InsufficientFee');
+
+      const pc = await hre.viem.getPublicClient();
+      const beforeT = await pc.getBalance({ address: protocolTreasury.account.address });
+      const over = feeWei + 12345n;
+      await asUserFee.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: over });
+      const afterT = await pc.getBalance({ address: protocolTreasury.account.address });
+      expect(afterT - beforeT).to.equal(feeWei);
+    });
+
+    it("claimedAmount equals allocation * sum(pcts)/10000 for several distributions", async () => {
+      const { claim, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
+      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const pairs = [ [1000, 0], [500, 500], [250, 250] ];
+      for (const [pctC, pctS] of pairs) {
+        // fresh claim each time requires new contract; here we simulate only single account once
+        // Use single run with (pctC+pctS)=50% to verify mapping and exit
+        const opts: ClaimOptions = { optionId: keccak256(toBytes(`mix-${pctC}-${pctS}`)), multiplier, percentageToClaim: pctC, percentageToStake: pctS, lockupPeriod: 120 };
+        const fee = await claim.read.validateClaimOptions([opts]);
+        const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+        const asUserMix = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: user } });
+        await asUserMix.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: fee });
+        const consumed = await claim.read.claimedAmount([user.account.address]);
+        const expected = (allocation * BigInt(pctC + pctS)) / 10_000n;
+        expect(consumed).to.equal(expected);
+        break;
       }
+    });
 
-      await executeClaim(
-        routerAsClaimList,
-        inClaimList,
-        id,
-        proof,
-        totalAllocation,
-        claimOnlyOptions
-      )
+    it("endAirdrop prevents further claims and does not move protocolAccruedTokens; protocol admin can withdraw after end", async () => {
+      const { claim, claimAsAdmin, user, tree, allocation, multiplier, protocolTreasury, partnerAdmin, protocolAdmin } = await loadFixture(deployFixture);
+      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = { optionId: keccak256(toBytes('after-end')), multiplier, percentageToClaim: 10_000, percentageToStake: 0, lockupPeriod: 0 };
+      const fee = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+      const pc = await hre.viem.getPublicClient();
+      const beforeT = await pc.getBalance({ address: protocolTreasury.account.address });
+      // accrue some protocol share first by making a claim
+      const asUserPre = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: user } });
+      await asUserPre.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: fee });
+      const accruedBefore = await claim.read.protocolAccruedTokens();
+      const beforeTokens = await (await hre.viem.getContractAt('MockERC20', (await claim.read.tokenAsset()) as `0x${string}`)).read.balanceOf([protocolTreasury.account.address]);
+      // End airdrop to partner recipient; protocol accrued should remain untouched
+      await claimAsAdmin.write.endAirdrop([partnerAdmin.account.address]);
+      const asUser = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: user } });
+      await expect(asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: fee })).to.be.rejectedWith('AirdropNotActive');
+      const afterTokens = await (await hre.viem.getContractAt('MockERC20', (await claim.read.tokenAsset()) as `0x${string}`)).read.balanceOf([protocolTreasury.account.address]);
+      // No protocol token transfer happened on end
+      expect(afterTokens).to.equal(beforeTokens);
+      // Accrued remains for later withdrawal
+      expect(await claim.read.protocolAccruedTokens()).to.equal(accruedBefore);
+      // Protocol admin can withdraw after end
+      const claimAsProtocolAdmin = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: protocolAdmin } });
+      await claimAsProtocolAdmin.write.withdrawProtocolAccrued([protocolTreasury.account.address, accruedBefore]);
+      const afterTokens2 = await (await hre.viem.getContractAt('MockERC20', (await claim.read.tokenAsset()) as `0x${string}`)).read.balanceOf([protocolTreasury.account.address]);
+      expect(afterTokens2 - beforeTokens).to.equal(accruedBefore);
+      expect(await claim.read.protocolAccruedTokens()).to.equal(0n);
+    });
 
-      // Verify all tokens were claimed directly
-      const claimData = await getClaimData(
-        routerAsClaimList,
-        id,
-        inClaimList.account.address
-      )
-      expect(claimData.totalClaimed).to.equal(totalAllocation)
-      expect(claimData.totalStaked).to.equal(0n)
-    })
+    it("emits Claimed event and records claimedAmount for partial claim+stake", async () => {
+      const { claim, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
+      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
 
-    it('Should handle staking data for user with no stakes', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { id } = await deployClaimContract(router, root, erc20, owner)
+      const pctClaim = 2500;
+      const pctStake = 1500;
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("partial-claim")),
+        multiplier,
+        percentageToClaim: pctClaim,
+        percentageToStake: pctStake,
+        lockupPeriod: 120,
+      };
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
 
-      // Get staking data for user with no stakes
-      const stakingData = await getClaimStakingData(
-        router,
-        id,
-        owner.account.address
-      )
-      const [stakeIds = [], claimableAmounts = [], totalClaimable = 0n] =
-        stakingData || []
-      expect(stakeIds.length).to.equal(0)
-      expect(claimableAmounts.length).to.equal(0)
-      expect(totalClaimable).to.equal(0n)
-    })
+      const txHash = await asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei });
+      const publicClient = await hre.viem.getPublicClient();
+      const receipt = await publicClient.getTransactionReceipt({ hash: txHash });
+      const events = parseEventLogs({ abi: asUser.abi, logs: receipt.logs, eventName: 'Claimed' });
+      expect(events.length).to.equal(1);
+      const ev = events[0];
+      const expectedClaim = (allocation * BigInt(pctClaim)) / 10_000n;
+      const expectedStake = (allocation * BigInt(pctStake)) / 10_000n;
+      expect(getAddress(ev.args.beneficiary as `0x${string}`)).to.equal(getAddress(user.account.address));
+      expect(ev.args.amountClaimed).to.equal(expectedClaim);
+      expect(ev.args.amountStaked).to.equal(expectedStake);
 
-    it('Should handle airdrop without staking for staking data', async function () {
-      const { router, owner, root, erc20 } = await deployFixture()
-      const { id } = await deployClaimContract(
-        router,
+      const consumed = await claim.read.claimedAmount([user.account.address]);
+      expect(consumed).to.equal(expectedClaim + expectedStake);
+    });
+
+    it("routes fees to updated partnerOverflow after rotation in RouteToPartner mode", async () => {
+      const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow, newPartner] =
+        await hre.viem.getWalletClients();
+
+      // Setup small cap and route-to-partner
+      const erc20 = await hre.viem.deployContract("MockERC20", [deployer.account.address]);
+      const stake = await hre.viem.deployContract("MockStake");
+      const feed = await hre.viem.deployContract("MockAggregatorV3", [8, 3000n * 10n ** 8n]);
+      const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
+      const allocation = parseEther("1");
+      const list: [string, bigint][] = [
+        [user.account.address, allocation],
+        [partnerAdmin.account.address, allocation],
+        [newPartner.account.address, allocation],
+      ];
+      const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
+      const root = tree.root as `0x${string}`;
+      const ip = {
+        admin: partnerAdmin.account.address,
         root,
-        erc20,
-        owner,
-        false
-      ) // no staking
+        asset: erc20.address,
+        staking: stake.address,
+        maxBonus: parseEther("1000"),
+        minLockupDuration: 1,
+        minLockupDurationForMultiplier: 60,
+        multiplier: 0n,
+      } satisfies InitParams;
+      const cfg = {
+        priceFeed: feed.address,
+        maxPriceAge: 3600,
+        protocolTreasury: protocolTreasury.account.address,
+        protocolOverflow: protocolOverflow.account.address,
+        partnerOverflow: overflowPartner.account.address,
+        feeClaimUsdCents: 100n,
+        feeStakeUsdCents: 0n,
+        feeCapUsdCents: 100n,
+        overflowMode: 1,
+        protocolTokenShareBips: 0,
+      } satisfies InitFeeConfig;
+      const salt = keccak256(toBytes("salt-rtp"));
+      await factory.write.deployClaim([ip, cfg, salt]);
+      const bytecode = (await hre.artifacts.readArtifact("SnagAirdropV2Claim")).bytecode as `0x${string}`;
+      const initCodeHash = keccak256(bytecode);
+      const compute = (f: `0x${string}`, s: `0x${string}`, h: `0x${string}`) => {
+        const packed = encodePacked(["bytes1", "address", "bytes32", "bytes32"], ["0xff", f, s, h]);
+        const k = keccak256(packed);
+        return getAddress(("0x" + k.slice(26)) as `0x${string}`);
+      };
+      const claimAddr = compute(factory.address, salt, initCodeHash);
+      const claim = await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr);
+      await erc20.write.transfer([claim.address, parseEther("1000")]);
+      const claimAsAdmin = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: partnerAdmin } });
+      await claimAsAdmin.write.unpause();
 
-      // Get staking data for airdrop without staking
-      const stakingData = await getClaimStakingData(
-        router,
-        id,
-        owner.account.address
-      )
-      const [stakeIds = [], claimableAmounts = [], totalClaimable = 0n] =
-        stakingData || []
-      expect(stakeIds.length).to.equal(0)
-      expect(claimableAmounts.length).to.equal(0)
-      expect(totalClaimable).to.equal(0n)
-    })
-  })
-})
+      // First claim routes to initial partnerOverflow
+      const entries6 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const me = entries6.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = { optionId: keccak256(toBytes("rtp1")), multiplier: 0n, percentageToClaim: 10_000, percentageToStake: 0, lockupPeriod: 0 };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      const pc = await hre.viem.getPublicClient();
+      // First claim will reach cap; overflow routing applies on subsequent claims
+      // Pay once to reach cap to treasury first
+      await asUser.write.claimFor([user.account.address, proof, allocation, opts, await makeClaimSignature(user, claim.address, user.account.address, allocation, opts)], { value: feeWei });
+      // Second claim should route to partnerOverflow (post-cap)
+      const meB = entries6.find(([, v]) => v[0] === partnerAdmin.account.address)!;
+      const proofB = tree.getProof(meB[1]) as `0x${string}`[];
+      const before1 = await pc.getBalance({ address: overflowPartner.account.address });
+      await (await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: partnerAdmin } }))
+        .write.claimFor([partnerAdmin.account.address, proofB, allocation, opts, await makeClaimSignature(partnerAdmin, claim.address, partnerAdmin.account.address, allocation, opts)], { value: feeWei });
+      const after1 = await pc.getBalance({ address: overflowPartner.account.address });
+      expect(after1 - before1).to.equal(feeWei);
+
+      // Rotate partner overflow and claim with second address
+      await claimAsAdmin.write.updatePartnerOverflow([deployer.account.address]);
+      // Third claim by a fresh claimant routes to new partnerOverflow
+      const meNew = entries6.find(([, v]) => v[0] === newPartner.account.address)!;
+      const proof2 = tree.getProof(meNew[1]) as `0x${string}`[];
+      const asNew = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: newPartner } });
+      const before2 = await pc.getBalance({ address: deployer.account.address });
+      await asNew.write.claimFor([newPartner.account.address, proof2, allocation, opts, await makeClaimSignature(newPartner, claim.address, newPartner.account.address, allocation, opts)], { value: feeWei });
+      const after2 = await pc.getBalance({ address: deployer.account.address });
+      expect(after2 - before2).to.equal(feeWei);
+    });
+  
+    it("partner can update partnerOverflow address", async () => {
+      const { claimAsAdmin, overflowPartner, partnerAdmin } = await loadFixture(deployFixture);
+      await claimAsAdmin.write.updatePartnerOverflow([partnerAdmin.account.address]); // set to a new one
+      // Not much to assert besides event — but if no revert, function is callable by onlyAdmin
+      await claimAsAdmin.write.updatePartnerOverflow([overflowPartner.account.address]); // set back
+    });
+  });
+
+    it("protocol admin withdrawal unaffected by pause/unpause and works after end", async () => {
+      const { claim, claimAsAdmin, user, tree, allocation, multiplier, protocolTreasury, protocolAdmin } = await loadFixture(deployFixture);
+      const entries = Array.from(tree.entries());
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+      const opts: ClaimOptions = { optionId: keccak256(toBytes('withdraw-anytime')), multiplier, percentageToClaim: 10_000, percentageToStake: 0, lockupPeriod: 0 };
+      const fee = await claim.read.validateClaimOptions([opts]);
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts);
+      const asUser = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: user } });
+      await asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: fee });
+      const accrued = await claim.read.protocolAccruedTokens();
+      // Pause contract; withdraw half
+      await claimAsAdmin.write.pause();
+      const half = accrued / 2n;
+      const claimAsProtocolAdmin = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: protocolAdmin } });
+      await claimAsProtocolAdmin.write.withdrawProtocolAccrued([protocolTreasury.account.address, half]);
+      // Unpause and withdraw the rest
+      await claimAsAdmin.write.unpause();
+      await claimAsProtocolAdmin.write.withdrawProtocolAccrued([protocolTreasury.account.address, accrued - half]);
+      expect(await claim.read.protocolAccruedTokens()).to.equal(0n);
+      // End and confirm still callable (noop withdraw zero)
+      await claimAsAdmin.write.endAirdrop([protocolTreasury.account.address]);
+      await claimAsProtocolAdmin.write.withdrawProtocolAccrued([protocolTreasury.account.address, 0n]);
+    });

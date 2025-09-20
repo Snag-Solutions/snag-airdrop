@@ -43,3 +43,4 @@ contract MockStake is ERC165, IBaseStake {
             super.supportsInterface(interfaceId);
     }
 } 
+

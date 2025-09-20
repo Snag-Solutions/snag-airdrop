@@ -12,3 +12,4 @@ contract MockERC20 is ERC20, ERC20Permit {
         _mint(recipient, 10000 * 10 ** decimals());
     }
 }
+

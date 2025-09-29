@@ -35,45 +35,45 @@ const config: HardhatUserConfig = {
     exclude: ['contracts/test/**']
   },
   networks: {
-    goerli: {
-      url: `${process.env.ALCHEMY_GOERLI_URL}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    base: {
-      url: `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    baseSepolia: {
-      url: `https://base-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    ethereum: {
-      url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    sepolia: {
-      url: `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-    },
-    arbitrum: {
-      url: `https://arb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    arbitrumSepolia: {
-      url: `https://arb-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    flow: {
-      url: `https://flow-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    flowTestnet: {
-      url: `https://flow-testnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    },
-    apechain: {
-      url: `https://apecoin-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
-    }
+    // goerli: {
+    //   url: `${process.env.ALCHEMY_GOERLI_URL}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // base: {
+    //   url: `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // baseSepolia: {
+    //   url: `https://base-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // ethereum: {
+    //   url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // sepolia: {
+    //   url: `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    // },
+    // arbitrum: {
+    //   url: `https://arb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // arbitrumSepolia: {
+    //   url: `https://arb-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // flow: {
+    //   url: `https://flow-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // flowTestnet: {
+    //   url: `https://flow-testnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // },
+    // apechain: {
+    //   url: `https://apecoin-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
+    //   accounts: [`0x${process.env.DEPLOYER_PRIVATE_KEY}`],
+    // }
   }
 };
 

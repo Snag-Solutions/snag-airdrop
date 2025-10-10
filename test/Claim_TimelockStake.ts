@@ -45,7 +45,7 @@ describe("Claim + TimelockStake integration", function () {
     const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
 
     const allocation = parseEther("100");
-    const list: [string, bigint][] = [[user.account.address, allocation]];
+    const list: [`0x${string}`, bigint][] = [[user.account.address, allocation]];
     const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
     const root = tree.root as `0x${string}`;
 
@@ -97,7 +97,7 @@ describe("Claim + TimelockStake integration", function () {
     expect(allowanceBefore).to.equal(max);
 
     // Prepare claim
-    const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+    const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
     const me = entries.find(([, v]) => v[0] === user.account.address)!;
     const proof = tree.getProof(me[1]) as `0x${string}`[];
     const opts = {
@@ -161,7 +161,7 @@ describe("Claim + TimelockStake integration", function () {
     const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
 
     const allocation = parseEther("100");
-    const list: [string, bigint][] = [[user.account.address, allocation]];
+    const list: [`0x${string}`, bigint][] = [[user.account.address, allocation]];
     const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
     const root = tree.root as `0x${string}`;
 
@@ -207,7 +207,7 @@ describe("Claim + TimelockStake integration", function () {
       .write.unpause();
 
     // Build proof
-    const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+    const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
     const me = entries.find(([, v]) => v[0] === user.account.address)!;
     const proof = tree.getProof(me[1]) as `0x${string}`[];
 

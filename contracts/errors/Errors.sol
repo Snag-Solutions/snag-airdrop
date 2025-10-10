@@ -26,6 +26,7 @@ error AirdropNotActive();
 error AlreadyClaimed();
 error InvalidProof();
 error PctSumExceeded();
+error PctSumNot100();
 error NoStaking();
 error LockupTooShort();
 error InvalidOptionId();

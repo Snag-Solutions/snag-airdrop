@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.20;
 
+import {SnagFeeModule} from '../modules/SnagFeeModule.sol';
+
 /// @title ISnagAirdropV2Factory
 /// @notice Interface for the Snag signed-only airdrop factory.
 /// @dev EIP-712 authorizes deployments; concrete implementation should use `@inheritdoc`.
@@ -9,9 +11,6 @@ interface ISnagAirdropV2Factory {
     /// @param id Deterministic id = keccak256(abi.encode(deployer, salt)).
     /// @param claimContract Address of the deployed claim contract.
     event AirdropCreated(bytes32 indexed id, address claimContract);
-
-    /// @notice Overflow behavior once the USD-cap is reached.
-    enum FeeOverflowMode { Cancel, RouteToPartner, RouteToProtocol }
 
     /// @notice Airdrop deployment parameters.
     struct CreateParams {
@@ -57,7 +56,7 @@ interface ISnagAirdropV2Factory {
         address partnerOverflow;
 
         /// @notice Cancel / RouteToPartner / RouteToProtocol.
-        FeeOverflowMode overflowMode;
+        SnagFeeModule.FeeOverflowMode overflowMode;
 
         /// @notice Protocol share of distributed tokens (bips, 0..10_000).
         /// @dev Withdraw gated by Factory's PROTOCOL_ADMIN_ROLE.

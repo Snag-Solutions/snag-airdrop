@@ -80,7 +80,7 @@ abstract contract SnagFeeModule is Context {
     }
 
     /// @dev Internal: bookkeeping when protocol token share is withdrawn.
-    function _markProtocolWithdraw(address to, uint256 amt) internal {
+    function _markProtocolWithdraw(address /*to*/, uint256 amt) internal {
         protocolAccruedTokens -= amt; // bound-checked by caller
     }
 

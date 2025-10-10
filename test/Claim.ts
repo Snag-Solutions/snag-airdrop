@@ -117,7 +117,7 @@ import {
   
     // Build merkle list
     const allocation = parseEther("100");
-    const claimList: [string, bigint][] = [
+    const claimList: [`0x${string}`, bigint][] = [
       [user.account.address, allocation],
       [partnerAdmin.account.address, parseEther("5")],
     ];
@@ -244,8 +244,10 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       expect(feeClaimWei2 < feeClaimWei).to.equal(true);
   
       // Revert paths
-      const badSum: ClaimOptions = { ...claimOpts, percentageToClaim: 6_000, percentageToStake: 5_000 };
-      await expect(claim.read.validateClaimOptions([badSum])).to.be.rejectedWith("PctSumExceeded");
+      const badSumHigh: ClaimOptions = { ...claimOpts, percentageToClaim: 6_000, percentageToStake: 5_000 };
+      await expect(claim.read.validateClaimOptions([badSumHigh])).to.be.rejectedWith("PctSumExceeded");
+      const badSumLow: ClaimOptions = { ...claimOpts, percentageToClaim: 3_000, percentageToStake: 2_000 };
+      await expect(claim.read.validateClaimOptions([badSumLow])).to.be.rejectedWith("PctSumNot100");
   
       const zeroId: ClaimOptions = { ...claimOpts, optionId: `0x${"00".repeat(32)}` as `0x${string}` };
       await expect(claim.read.validateClaimOptions([zeroId])).to.be.rejectedWith("InvalidOptionId");
@@ -319,7 +321,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
 
       const allocation = parseEther("100");
-      const list: [string, bigint][] = [ [user.account.address, allocation] ];
+      const list: [`0x${string}`, bigint][] = [ [user.account.address, allocation] ];
       const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
       const root = tree.root as `0x${string}`;
 
@@ -369,7 +371,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       expect(allowanceBefore).to.equal(max);
 
       // Prepare claim
-      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
       const opts: ClaimOptions = {
@@ -416,7 +418,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
 
       const allocation = parseEther("100");
-      const list: [string, bigint][] = [ [user.account.address, allocation] ];
+      const list: [`0x${string}`, bigint][] = [ [user.account.address, allocation] ];
       const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
       const root = tree.root as `0x${string}`;
 
@@ -460,14 +462,14 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       await (await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: partnerAdmin } }))
         .write.unpause();
 
-      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
       const opts: ClaimOptions = {
         optionId: keccak256(toBytes("partial-stake")),
         multiplier,
         percentageToClaim: 3000,
-        percentageToStake: 2000,
+        percentageToStake: 7000,
         lockupPeriod: 120,
       };
       const feeWei = await claim.read.validateClaimOptions([opts]);
@@ -485,10 +487,10 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       const stakeAfter = await erc20.read.balanceOf([linearStake.address]);
 
       const amountClaimed = (allocation * 3000n) / 10_000n; // 30
-      const amountStaked = (allocation * 2000n) / 10_000n;  // 20
-      const bonus = (amountStaked * 1000n) / 10_000n;       // 2
-      const toStake = amountStaked + bonus;                 // 22
-      const distributed = amountClaimed + toStake;          // 52
+      const amountStaked = (allocation * 7000n) / 10_000n;  // 70
+      const bonus = (amountStaked * 1000n) / 10_000n;       // 7
+      const toStake = amountStaked + bonus;                 // 77
+      const distributed = amountClaimed + toStake;          // 107
       const expectedProto = (distributed * 100n + 9999n) / 10000n;
 
       expect(userAfter - userBefore).to.equal(amountClaimed);
@@ -500,16 +502,16 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
     it("supports partial claim + stake in one call and prevents double-claim", async () => {
       const { claim, erc20, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
 
-      const entries3 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries3 = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me3 = entries3.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me3[1]) as `0x${string}`[];
 
-      // 30% claim, 20% stake
+      // 30% claim, 70% stake
       const opts: ClaimOptions = {
         optionId: keccak256(toBytes("mix-claim-stake")),
         multiplier,
         percentageToClaim: 3000,
-        percentageToStake: 2000,
+        percentageToStake: 7000,
         lockupPeriod: 120,
       };
       const feeWei = await claim.read.validateClaimOptions([opts]);
@@ -578,14 +580,14 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       const claimAsAdmin = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: partnerAdmin } });
       await claimAsAdmin.write.unpause();
 
-      const entries4 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries4 = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me4 = entries4.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me4[1]) as `0x${string}`[];
       const stakeOpts: ClaimOptions = {
         optionId: keccak256(toBytes("stake")),
         multiplier: 1000n,
         percentageToClaim: 0,
-        percentageToStake: 1000,
+        percentageToStake: 10_000,
         lockupPeriod: 100, // staking selected but stakingAddress=0 → NoStaking
       };
       const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
@@ -604,10 +606,10 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
         optionId: keccak256(toBytes("stake-too-short")),
         multiplier: mult2,
         percentageToClaim: 0,
-        percentageToStake: 1000,
+        percentageToStake: 10_000,
         lockupPeriod: 1, // fixture minLockupDuration is 1; test below uses 0 to trigger
       };
-      const ent = Array.from(tree2.entries()) as Array<[number, [string, bigint]]>;
+      const ent = Array.from(tree2.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const proof2 = tree2.getProof(ent[0][1]) as `0x${string}`[];
       const fee2 = await claim2.read.validateClaimOptions([{ ...opts2, lockupPeriod: 0 }]).catch(() => 0n);
       await expect(claim2.read.validateClaimOptions([{ ...opts2, lockupPeriod: 0 }])).to.be.rejectedWith("LockupTooShort");
@@ -659,7 +661,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
   
     it("signature must be from beneficiary", async () => {
       const { claim, tree, allocation, partnerAdmin, user, multiplier } = await loadFixture(deployFixture);
-      const entries5 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries5 = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me5 = entries5.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me5[1]) as `0x${string}`[];
   
@@ -712,7 +714,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       expect(await claim.read.paused()).to.equal(true);
   
       // Try claim
-      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
       const opts: ClaimOptions = {
@@ -738,7 +740,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
 
     it("claim underpays reverts; overpay refunds dust (integration)", async () => {
       const { claim, user, tree, allocation, multiplier, protocolTreasury } = await loadFixture(deployFixture);
-      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
       const opts: ClaimOptions = { optionId: keccak256(toBytes('fee-int')), multiplier, percentageToClaim: 10_000, percentageToStake: 0, lockupPeriod: 0 };
@@ -757,10 +759,10 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
 
     it("claimedAmount equals allocation * sum(pcts)/10000 for several distributions", async () => {
       const { claim, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
-      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
-      const pairs = [ [1000, 0], [500, 500], [250, 250] ];
+      const pairs = [ [10_000, 0], [2_500, 7_500] ];
       for (const [pctC, pctS] of pairs) {
         // fresh claim each time requires new contract; here we simulate only single account once
         // Use single run with (pctC+pctS)=50% to verify mapping and exit
@@ -778,7 +780,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
 
     it("endAirdrop prevents further claims and does not move protocolAccruedTokens; protocol admin can withdraw after end", async () => {
       const { claim, claimAsAdmin, user, tree, allocation, multiplier, protocolTreasury, partnerAdmin, protocolAdmin } = await loadFixture(deployFixture);
-      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
       const opts: ClaimOptions = { optionId: keccak256(toBytes('after-end')), multiplier, percentageToClaim: 10_000, percentageToStake: 0, lockupPeriod: 0 };
@@ -810,12 +812,12 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
 
     it("emits Claimed event and records claimedAmount for partial claim+stake", async () => {
       const { claim, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
-      const entries = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
 
       const pctClaim = 2500;
-      const pctStake = 1500;
+      const pctStake = 7500;
       const opts: ClaimOptions = {
         optionId: keccak256(toBytes("partial-claim")),
         multiplier,
@@ -853,7 +855,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       const feed = await hre.viem.deployContract("MockAggregatorV3", [8, 3000n * 10n ** 8n]);
       const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
       const allocation = parseEther("1");
-      const list: [string, bigint][] = [
+      const list: [`0x${string}`, bigint][] = [
         [user.account.address, allocation],
         [partnerAdmin.account.address, allocation],
         [newPartner.account.address, allocation],
@@ -898,7 +900,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       await claimAsAdmin.write.unpause();
 
       // First claim routes to initial partnerOverflow
-      const entries6 = Array.from(tree.entries()) as Array<[number, [string, bigint]]>;
+      const entries6 = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
       const me = entries6.find(([, v]) => v[0] === user.account.address)!;
       const proof = tree.getProof(me[1]) as `0x${string}`[];
       const opts: ClaimOptions = { optionId: keccak256(toBytes("rtp1")), multiplier: 0n, percentageToClaim: 10_000, percentageToStake: 0, lockupPeriod: 0 };
@@ -921,7 +923,7 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       await claimAsAdmin.write.updatePartnerOverflow([deployer.account.address]);
       // Third claim by a fresh claimant routes to new partnerOverflow
       const meNew = entries6.find(([, v]) => v[0] === newPartner.account.address)!;
-      const proof2 = tree.getProof(meNew[1]) as `0x${string}`[];
+      const proof2 = tree.getProof(meNew[1] as [`0x${string}`, bigint]) as `0x${string}`[];
       const asNew = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: newPartner } });
       const before2 = await pc.getBalance({ address: deployer.account.address });
       await asNew.write.claimFor([newPartner.account.address, proof2, allocation, opts, await makeClaimSignature(newPartner, claim.address, newPartner.account.address, allocation, opts)], { value: feeWei });

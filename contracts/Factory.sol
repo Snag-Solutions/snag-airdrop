@@ -214,7 +214,7 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, 
         cfg.feeClaimUsdCents = f.feeClaimUsdCents;
         cfg.feeStakeUsdCents = f.feeStakeUsdCents;
         cfg.feeCapUsdCents = f.feeCapUsdCents;
-        cfg.overflowMode = SnagFeeModule.FeeOverflowMode(uint8(f.overflowMode));
+        cfg.overflowMode = f.overflowMode;
         cfg.protocolTokenShareBips = f.protocolTokenShareBips;
 
         SnagAirdropV2Claim.InitParams memory ip;

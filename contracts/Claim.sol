@@ -14,7 +14,7 @@ import {EIP712} from '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
 import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 
 import {
-    AirdropNotActive, AlreadyClaimed, InvalidProof, PctSumExceeded, NoStaking,
+    AirdropNotActive, AlreadyClaimed, InvalidProof, PctSumExceeded, PctSumNot100, NoStaking,
     LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer
 } from "./errors/Errors.sol";
 
@@ -81,42 +81,6 @@ contract SnagAirdropV2Claim is
     uint256  public totalStaked;                             /// Total staked (sum).
     uint256  public totalBonusTokens;                        /// Total bonus minted/allocated.
 
-    /// @notice Emitted on successful claim.
-    event Claimed(
-        address indexed beneficiary,
-        uint256 amountClaimed,
-        uint256 amountStaked,
-        uint256 bonus,
-        uint256 protocolTake,
-        uint32  lockupPeriod,
-        address feeReceiver,
-        uint256 feeWei,
-        uint64  feeUsdCents,
-        FeeOverflowMode mode,
-        bool    stakeSelected
-    );
-
-    /// @notice Emitted after successful initialization by the factory.
-    event AirdropInitialized(
-        address admin,
-        bytes32 root,
-        address asset,
-        address staking,
-        uint256 maxBonus,
-        uint32  minLockupDuration,
-        uint32  minLockupDurationForMultiplier,
-        uint256 multiplier,
-        address priceFeed,
-        uint32  maxPriceAge,
-        address protocolTreasury,
-        address protocolOverflow,
-        address partnerOverflow,
-        uint64  feeClaimUsdCents,
-        uint64  feeStakeUsdCents,
-        uint64  feeCapUsdCents,
-        FeeOverflowMode overflowMode,
-        uint16  protocolTokenShareBips
-    );
 
     /// @notice Contract admin (partner).
     address private _admin;
@@ -247,7 +211,9 @@ contract SnagAirdropV2Claim is
 
     /// @inheritdoc ISnagAirdropV2Claim
     function validateClaimOptions(ClaimOptions calldata o) external view returns (uint256 requiredWei) {
-        if (uint256(o.percentageToClaim) + uint256(o.percentageToStake) > 10_000) revert PctSumExceeded();
+        uint256 pctSum = uint256(o.percentageToClaim) + uint256(o.percentageToStake);
+        if (pctSum > 10_000) revert PctSumExceeded();
+        if (pctSum < 10_000) revert PctSumNot100();
         if (o.optionId == bytes32(0)) revert InvalidOptionId();
         if (o.multiplier != multiplier) revert InvalidMultiplier();
         if (o.percentageToStake > 0) {
@@ -415,7 +381,9 @@ contract SnagAirdropV2Claim is
         if (claimedAmount[beneficiary] != 0) revert AlreadyClaimed();
 
         // mirror of validateClaimOptions
-        if (uint256(o.percentageToClaim) + uint256(o.percentageToStake) > 10_000) revert PctSumExceeded();
+        uint256 pctSum = uint256(o.percentageToClaim) + uint256(o.percentageToStake);
+        if (pctSum > 10_000) revert PctSumExceeded();
+        if (pctSum < 10_000) revert PctSumNot100();
         if (o.optionId == bytes32(0)) revert InvalidOptionId();
         if (o.multiplier != multiplier) revert InvalidMultiplier();
         if (o.percentageToStake > 0) {
@@ -426,7 +394,6 @@ contract SnagAirdropV2Claim is
         bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(beneficiary, totalAllocation))));
         if (!MerkleProof.verify(proof, root, leaf)) revert InvalidProof();
 
-        uint256 pctSum = uint256(o.percentageToClaim) + uint256(o.percentageToStake);
         claimedAmount[beneficiary] = (totalAllocation * pctSum) / 10_000;
     }
 }

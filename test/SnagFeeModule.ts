@@ -26,9 +26,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100, // $1.00
-      200, // $2.00
-      500, // $5.00 cap
+      100n, // $1.00
+      200n, // $2.00
+      500n, // $5.00 cap
       0, // Cancel overflow
       0, // token share bips
     ])
@@ -103,9 +103,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
-      100,
-      150,
+      100n,
+      100n,
+      150n,
       0,
       0,
     ])
@@ -156,9 +156,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
-      200,
-      500,
+      100n,
+      200n,
+      500n,
       1, // RouteToPartner
       0,
     ])
@@ -199,9 +199,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
-      200,
-      500,
+      100n,
+      200n,
+      500n,
       2, // RouteToProtocol
       0,
     ])
@@ -233,9 +233,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      0,    // claim fee off
-      0,    // stake fee off
-      10_000, // cap large
+      0n,    // claim fee off
+      0n,    // stake fee off
+      10_000n, // cap large
       0,
       0,
     ])
@@ -266,14 +266,14 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
-      0,
-      10_000,
+      100n,
+      0n,
+      10_000n,
       0,
       0,
     ])
     // Force staleness
-    await (await hre.viem.getContractAt('MockAggregatorV3', feed.address)).write.setStale([1])
+    await (await hre.viem.getContractAt('MockAggregatorV3', feed.address)).write.setStale([1n])
     await expect(harness.read.exposedRequiredFeeWei([false])).to.be.rejectedWith('StalePrice')
 
     // Fresh but bad price
@@ -285,9 +285,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
-      0,
-      10_000,
+      100n,
+      0n,
+      10_000n,
       0,
       0,
     ])
@@ -306,9 +306,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100, // claim
-      200, // stake
-      300, // cap
+      100n, // claim
+      200n, // stake
+      300n, // cap
       1,   // RouteToPartner
       0,
     ])
@@ -323,5 +323,27 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
     // Now post-cap payment (claim path) routes to partner; also Stake path routes and emits
     await harness.write.exposedCollect([false], { value: need1 })
     await harness.write.exposedCollect([true], { value: need2 })
+  })
+
+  it('reverts on invalid feed decimals (>18)', async function () {
+    const [owner, treasury, partner, protocol] = await hre.viem.getWalletClients()
+    const feed = await hre.viem.deployContract('MockAggregatorV3', [8, 3_000n * 10n ** 8n])
+    const harness = await hre.viem.deployContract('MockFeeModuleHarness')
+    await harness.write.init([
+      feed.address,
+      86_400,
+      treasury.account.address,
+      protocol.account.address,
+      partner.account.address,
+      100n,
+      0n,
+      10_000n,
+      0,
+      0,
+    ])
+
+    // Set feed decimals to 19 to trigger the guard
+    await (await hre.viem.getContractAt('MockAggregatorV3', feed.address)).write.setDecimals([19])
+    await expect(harness.read.exposedRequiredFeeWei([false])).to.be.rejectedWith('InvalidFeedDecimals')
   })
 })

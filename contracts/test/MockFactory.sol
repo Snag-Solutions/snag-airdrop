@@ -3,6 +3,7 @@ pragma solidity 0.8.20;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {SnagAirdropV2Claim} from "../Claim.sol";
+import {SnagFeeModule} from "../modules/SnagFeeModule.sol";
 
 /// @title MockFactoryWithRoles
 /// @notice Test factory that deploys claim via CREATE2 and exposes PROTOCOL_ADMIN_ROLE for withdraw tests.
@@ -24,7 +25,7 @@ contract MockFactoryWithRoles is AccessControl {
 
     function deployClaim(
         SnagAirdropV2Claim.InitParams memory p,
-        SnagAirdropV2Claim.InitFeeConfig memory cfg,
+        SnagFeeModule.InitFeeConfig memory cfg,
         bytes32 salt
     ) external returns (address claim) {
         bytes memory bytecode = type(SnagAirdropV2Claim).creationCode;

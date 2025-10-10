@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {PriceLib} from "../libs/PriceLib.sol";
-import {InsufficientFee, FeeTransferFailed, RefundFailed} from "../errors/Errors.sol";
+import "../errors/Errors.sol";
 import {AggregatorV3Interface} from "../vendor/AggregatorV3Interface.sol";
 import {Context} from '@openzeppelin/contracts/utils/Context.sol';
 
@@ -13,6 +13,18 @@ import {Context} from '@openzeppelin/contracts/utils/Context.sol';
 ///      - Cap + overflow behavior
 ///      - Protocol token-share accrual
 abstract contract SnagFeeModule is Context {
+    struct InitFeeConfig {
+        address priceFeed;
+        uint32  maxPriceAge;
+        address protocolTreasury;
+        address protocolOverflow;
+        address partnerOverflow;
+        uint64  feeClaimUsdCents;
+        uint64  feeStakeUsdCents;
+        uint64  feeCapUsdCents;
+        FeeOverflowMode overflowMode;
+        uint16  protocolTokenShareBips;
+    }
     /// @notice Behavior once the USD-fee cap is reached.
     enum FeeOverflowMode { Cancel, RouteToPartner, RouteToProtocol }
 
@@ -37,28 +49,17 @@ abstract contract SnagFeeModule is Context {
     // should emit higher-level events with fee context when appropriate.
 
     /// @dev Module initializer (call once from parent.initialize).
-    function __snagFee_init(
-        address priceFeed_,
-        uint32  maxPriceAge_,
-        address protocolTreasury_,
-        address protocolOverflow_,
-        address partnerOverflow_,
-        uint64  feeClaimUsdCents_,
-        uint64  feeStakeUsdCents_,
-        uint64  feeCapUsdCents_,
-        FeeOverflowMode overflowMode_,
-        uint16  protocolTokenShareBips_
-    ) internal {
-        _priceFeed             = priceFeed_;
-        _maxPriceAge           = maxPriceAge_;
-        protocolTreasury       = protocolTreasury_;
-        protocolOverflow       = protocolOverflow_;
-        partnerOverflow        = partnerOverflow_;
-        feeClaimUsdCents       = feeClaimUsdCents_;
-        feeStakeUsdCents       = feeStakeUsdCents_;
-        feeCapUsdCents         = feeCapUsdCents_;
-        overflowMode           = overflowMode_;
-        protocolTokenShareBips = protocolTokenShareBips_;
+    function __snagFee_init(InitFeeConfig memory cfg) internal {
+        _priceFeed             = cfg.priceFeed;
+        _maxPriceAge           = cfg.maxPriceAge;
+        protocolTreasury       = cfg.protocolTreasury;
+        protocolOverflow       = cfg.protocolOverflow;
+        partnerOverflow        = cfg.partnerOverflow;
+        feeClaimUsdCents       = cfg.feeClaimUsdCents;
+        feeStakeUsdCents       = cfg.feeStakeUsdCents;
+        feeCapUsdCents         = cfg.feeCapUsdCents;
+        overflowMode           = cfg.overflowMode;
+        protocolTokenShareBips = cfg.protocolTokenShareBips;
     }
 
     /// @notice Remaining USD-cap headroom (0 if cap reached or no cap configured).
@@ -80,7 +81,7 @@ abstract contract SnagFeeModule is Context {
     }
 
     /// @dev Internal: bookkeeping when protocol token share is withdrawn.
-    function _markProtocolWithdraw(address to, uint256 amt) internal {
+    function _markProtocolWithdraw(address /*to*/, uint256 amt) internal {
         protocolAccruedTokens -= amt; // bound-checked by caller
     }
 

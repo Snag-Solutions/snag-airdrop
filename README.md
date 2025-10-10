@@ -75,10 +75,32 @@ Users submit an EIP‑712 signed `ClaimOptions` along with a Merkle proof and al
   - “Claim + stake”: tokens route to the staking contract. If `lockupPeriod ≥ minLockupDurationForMultiplier`, a bonus is added to the staked amount: `bonus = min(maxBonus, staked * multiplier / 10_000)`. The bonus applies only to the staked portion and is funded from the claim’s token balance.
   - Percentage token fee: protocol share = ceil((claimed + staked + bonus) * bips / 10,000). Accrues in the claim contract for protocol admin withdrawal; not moved automatically on airdrop end.
   - `claimedAmount[user]` stores the consumed amount = allocation * (percentageToClaim + percentageToStake) / 10,000.
+  - Event: `Claimed` now includes the `optionId` used for the claim (last argument), enabling downstream analytics to associate claims with UI options.
 
 - Pausing and End
   - Partner admin can pause/unpause claims.
   - Ending the airdrop sweeps only leftover user tokens to a partner recipient. It does not affect `protocolAccruedTokens`. Subsequent claims revert. Protocol admin withdrawals are unaffected by pause/unpause or end.
+  - There is no “forfeit claim” operation. Once a claim is processed, the consumed allocation is recorded and cannot be forfeited back to increase remaining allocation.
+
+## Staking Claims: Pagination
+
+Some users can accumulate many stakes over time. Both staking contracts expose a paginated claim to keep gas predictable:
+
+- Linear vesting (`LinearStake`)
+  - `claimUnlockedFrom(startAfterId, maxStakes)` claims unlocked (vested) amounts from a batch of stakes.
+  - Use `startAfterId = 0` to start from the first stake; the function returns `lastProcessedId` which you can pass into the next call to continue.
+  - Emits `BatchClaimed(user, totalClaimed, lastProcessedId)`.
+  - Also supports `claimUnlocked(stakeId)` for a single stake (or `stakeId = 0` to scan all).
+
+- Timelock (cliff) vesting (`TimelockStake`)
+  - `claimFrom(startAfterId, maxStakes)` claims only stakes that have fully matured (unmatured stakes in the window are skipped without reverting).
+  - Same cursor semantics: start with `startAfterId = 0`, then pass the returned `lastProcessedId` to continue.
+  - Emits `BatchClaimed(user, totalClaimed, lastProcessedId)`.
+  - Also supports `claim(stakeId)` for a single matured stake (or `stakeId = 0` to scan all matured stakes).
+
+Helpers available on both:
+- `getStakeIds(account)`: returns the user’s stake IDs (for UI pagination or inspection).
+- `claimable(stakeIdOrZero, account)`: returns parallel arrays of IDs and claimable amounts (0 when nothing is currently claimable).
 
 ### Bonus Multiplier Details
 
@@ -90,6 +112,7 @@ Users submit an EIP‑712 signed `ClaimOptions` along with a Merkle proof and al
 ## Developer Notes
 
 - Interfaces contain rich NatSpec; contracts use `@inheritdoc`.
+- The fee module initializer takes a single struct (`InitFeeConfig`) rather than many parameters.
 - For larger contract questions, see the generated docs in the `docs/` folder (kept in‑repo). GitHub will render these Markdown files directly.
 - Tests demonstrate end‑to‑end deployment, fee collection (USD fee + percentage fee), overflow routing, staking + bonus, and end‑of‑airdrop behavior.
 - SDK: this package includes `@snag/airdrop-sdk` for higher‑level integration helpers.

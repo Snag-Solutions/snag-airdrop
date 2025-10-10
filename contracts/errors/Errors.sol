@@ -9,13 +9,18 @@ error ZeroAdmin();
 error InvalidToken();
 error InvalidStakingContract();
 error AlreadyDeployed();
+error AlreadyInitialized();
 error Expired();
 error UnexpectedDeployer();
 error InvalidSigner();
+error ZeroAddress();
+error RoleAlreadyGranted();
+error RoleNotGranted();
 
 /// ---------------- Price / Fees ----------------
 error BadPrice();
 error StalePrice();
+error InvalidFeedDecimals();
 error InsufficientDeploymentFee();
 error InsufficientFee();
 error FeeTransferFailed();
@@ -26,11 +31,13 @@ error AirdropNotActive();
 error AlreadyClaimed();
 error InvalidProof();
 error PctSumExceeded();
+error PctSumNot100();
 error NoStaking();
 error LockupTooShort();
 error InvalidOptionId();
 error InvalidMultiplier();
 error InvalidClaimSignature();
+error SignatureAlreadyUsed();
 error OutOfTokens(uint256 required, uint256 available);
 
 /// ---------------- Roles ----------------

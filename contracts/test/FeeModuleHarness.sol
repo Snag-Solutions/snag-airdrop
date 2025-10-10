@@ -18,18 +18,18 @@ contract FeeModuleHarness is SnagFeeModule {
         FeeOverflowMode overflowMode_,
         uint16  protocolTokenShareBips_
     ) external {
-        __snagFee_init(
-            priceFeed_,
-            maxPriceAge_,
-            protocolTreasury_,
-            protocolOverflow_,
-            partnerOverflow_,
-            feeClaimUsdCents_,
-            feeStakeUsdCents_,
-            feeCapUsdCents_,
-            overflowMode_,
-            protocolTokenShareBips_
-        );
+        InitFeeConfig memory cfg;
+        cfg.priceFeed = priceFeed_;
+        cfg.maxPriceAge = maxPriceAge_;
+        cfg.protocolTreasury = protocolTreasury_;
+        cfg.protocolOverflow = protocolOverflow_;
+        cfg.partnerOverflow = partnerOverflow_;
+        cfg.feeClaimUsdCents = feeClaimUsdCents_;
+        cfg.feeStakeUsdCents = feeStakeUsdCents_;
+        cfg.feeCapUsdCents = feeCapUsdCents_;
+        cfg.overflowMode = overflowMode_;
+        cfg.protocolTokenShareBips = protocolTokenShareBips_;
+        __snagFee_init(cfg);
     }
 
     // expose views

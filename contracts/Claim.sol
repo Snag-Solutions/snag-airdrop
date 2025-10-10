@@ -13,10 +13,7 @@ import {ISnagAirdropV2Claim} from './interfaces/ISnagAirdropV2Claim.sol';
 import {EIP712} from '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
 import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 
-import {
-    AirdropNotActive, AlreadyClaimed, InvalidProof, PctSumExceeded, NoStaking,
-    LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer
-} from "./errors/Errors.sol";
+import "./errors/Errors.sol";
 
 import {SnagFeeModule} from "./modules/SnagFeeModule.sol";
 
@@ -46,18 +43,7 @@ contract SnagAirdropV2Claim is
     }
 
     /// @notice Initialization bundle for fee module + protocol token share.
-    struct InitFeeConfig {
-        address priceFeed;
-        uint32  maxPriceAge;
-        address protocolTreasury;
-        address protocolOverflow;
-        address partnerOverflow;
-        uint64  feeClaimUsdCents;
-        uint64  feeStakeUsdCents;
-        uint64  feeCapUsdCents;
-        FeeOverflowMode overflowMode;
-        uint16  protocolTokenShareBips;
-    }
+    /// @dev Shared via FeeConfigTypes.InitFeeConfig
 
     /// @notice Address of the factory (deployer) used for protocol role checks.
     /// @dev Immutable to prevent spoofing; set from _msgSender() in constructor.
@@ -81,42 +67,6 @@ contract SnagAirdropV2Claim is
     uint256  public totalStaked;                             /// Total staked (sum).
     uint256  public totalBonusTokens;                        /// Total bonus minted/allocated.
 
-    /// @notice Emitted on successful claim.
-    event Claimed(
-        address indexed beneficiary,
-        uint256 amountClaimed,
-        uint256 amountStaked,
-        uint256 bonus,
-        uint256 protocolTake,
-        uint32  lockupPeriod,
-        address feeReceiver,
-        uint256 feeWei,
-        uint64  feeUsdCents,
-        FeeOverflowMode mode,
-        bool    stakeSelected
-    );
-
-    /// @notice Emitted after successful initialization by the factory.
-    event AirdropInitialized(
-        address admin,
-        bytes32 root,
-        address asset,
-        address staking,
-        uint256 maxBonus,
-        uint32  minLockupDuration,
-        uint32  minLockupDurationForMultiplier,
-        uint256 multiplier,
-        address priceFeed,
-        uint32  maxPriceAge,
-        address protocolTreasury,
-        address protocolOverflow,
-        address partnerOverflow,
-        uint64  feeClaimUsdCents,
-        uint64  feeStakeUsdCents,
-        uint64  feeCapUsdCents,
-        FeeOverflowMode overflowMode,
-        uint16  protocolTokenShareBips
-    );
 
     /// @notice Contract admin (partner).
     address private _admin;
@@ -124,10 +74,13 @@ contract SnagAirdropV2Claim is
     /// @notice Initialization guard.
     bool private _initialized;
 
+    /// @notice Replay protection: per-beneficiary used nonces.
+    mapping(address => mapping(bytes32 => bool)) private _nonceUsed;
+
     /// @notice EIP-712 ClaimRequest typehash.
     bytes32 private constant CLAIM_TYPEHASH =
         keccak256(
-            'ClaimRequest(address claimAddress,address beneficiary,uint256 totalAllocation,uint16 percentageToClaim,uint16 percentageToStake,uint32 lockupPeriod,bytes32 optionId,uint256 multiplier)'
+            'ClaimRequest(address claimAddress,address beneficiary,uint256 totalAllocation,uint16 percentageToClaim,uint16 percentageToStake,uint32 lockupPeriod,bytes32 optionId,uint256 multiplier,bytes32 nonce)'
         );
 
     /// @notice Restricts function to the claim admin.
@@ -158,9 +111,9 @@ contract SnagAirdropV2Claim is
      */
     function initialize(
         InitParams calldata p,
-        InitFeeConfig calldata cfg
+        SnagFeeModule.InitFeeConfig calldata cfg
     ) external onlyFactory {
-        if (_initialized) revert AlreadyClaimed(); // reuse as "already initialized" guard
+        if (_initialized) revert AlreadyInitialized();
         if (p.admin == address(0)) revert NotAdmin();
 
         _admin  = p.admin;
@@ -180,18 +133,7 @@ contract SnagAirdropV2Claim is
             tokenAsset.approve(address(stakingAddress), type(uint256).max);
         }
 
-        __snagFee_init(
-            cfg.priceFeed,
-            cfg.maxPriceAge,
-            cfg.protocolTreasury,
-            cfg.protocolOverflow,
-            cfg.partnerOverflow,
-            cfg.feeClaimUsdCents,
-            cfg.feeStakeUsdCents,
-            cfg.feeCapUsdCents,
-            cfg.overflowMode,
-            cfg.protocolTokenShareBips
-        );
+        __snagFee_init(cfg);
 
         emit AirdropInitialized(
             _admin,
@@ -247,12 +189,15 @@ contract SnagAirdropV2Claim is
 
     /// @inheritdoc ISnagAirdropV2Claim
     function validateClaimOptions(ClaimOptions calldata o) external view returns (uint256 requiredWei) {
-        if (uint256(o.percentageToClaim) + uint256(o.percentageToStake) > 10_000) revert PctSumExceeded();
+        uint256 pctSum = uint256(o.percentageToClaim) + uint256(o.percentageToStake);
+        if (pctSum > 10_000) revert PctSumExceeded();
+        if (pctSum < 10_000) revert PctSumNot100();
         if (o.optionId == bytes32(0)) revert InvalidOptionId();
         if (o.multiplier != multiplier) revert InvalidMultiplier();
         if (o.percentageToStake > 0) {
             if (address(stakingAddress) == address(0)) revert NoStaking();
             if (o.lockupPeriod < minLockupDuration) revert LockupTooShort();
+            if (multiplier > 0 && o.lockupPeriod < minLockupDurationForMultiplier) revert LockupTooShort();
         }
         bool stakeSelected = (o.percentageToStake > 0);
         return requiredFeeWei(stakeSelected);
@@ -266,6 +211,7 @@ contract SnagAirdropV2Claim is
         bytes32[] calldata proof,
         uint256 totalAllocation,
         ClaimOptions calldata o,
+        bytes32 nonce,
         bytes calldata signature
     )
         external
@@ -274,8 +220,10 @@ contract SnagAirdropV2Claim is
         nonReentrant
         returns (uint256 amountClaimed, uint256 amountStaked)
     {
-        _verifySignature(beneficiary, totalAllocation, o, signature);
+        _verifySignature(beneficiary, totalAllocation, o, nonce, signature);
         _verifyAndRecordClaim(beneficiary, totalAllocation, proof, o);
+        if (_nonceUsed[beneficiary][nonce]) revert SignatureAlreadyUsed();
+        _nonceUsed[beneficiary][nonce] = true;
 
         // 1) Collect user fee (stake path beats claim path)
         bool stakeSelected = (o.percentageToStake > 0);
@@ -289,7 +237,7 @@ contract SnagAirdropV2Claim is
         totalStaked  += amountStaked;
 
         uint256 bonus = 0;
-        if (multiplier > 0 && o.lockupPeriod >= minLockupDurationForMultiplier) {
+        if (multiplier > 0 && amountStaked > 0 && o.lockupPeriod >= minLockupDurationForMultiplier) {
             bonus = (amountStaked * multiplier) / 10_000;
             if (bonus > maxBonus) bonus = maxBonus;
             totalBonusTokens += bonus;
@@ -322,8 +270,33 @@ contract SnagAirdropV2Claim is
             feeWeiPaid,
             usdFee,
             overflowMode,
-            stakeSelected
+            stakeSelected,
+            o.optionId
         );
+    }
+
+    /// @dev Computes the EIP-712 digest for a ClaimRequest.
+    function _computeClaimDigest(
+        address beneficiary,
+        uint256 totalAllocation,
+        ClaimOptions calldata o,
+        bytes32 nonce
+    ) private view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                CLAIM_TYPEHASH,
+                address(this),
+                beneficiary,
+                totalAllocation,
+                o.percentageToClaim,
+                o.percentageToStake,
+                o.lockupPeriod,
+                o.optionId,
+                o.multiplier,
+                nonce
+            )
+        );
+        return _hashTypedDataV4(structHash);
     }
 
     /// @dev Internal: perform token transfers and optional staking.
@@ -372,6 +345,7 @@ contract SnagAirdropV2Claim is
 
     /// @inheritdoc ISnagAirdropV2Claim
     function transferOwnership(address newAdmin) external onlyAdmin {
+        if (newAdmin == address(0)) revert ZeroAddress();
         address previousAdmin = _admin;
         _admin = newAdmin;
         emit AirdropOwnershipTransferred(previousAdmin, newAdmin);
@@ -384,24 +358,17 @@ contract SnagAirdropV2Claim is
         address beneficiary,
         uint256 totalAllocation,
         ClaimOptions calldata o,
+        bytes32 nonce,
         bytes calldata signature
     ) private view {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                CLAIM_TYPEHASH,
-                address(this),
-                beneficiary,
-                totalAllocation,
-                o.percentageToClaim,
-                o.percentageToStake,
-                o.lockupPeriod,
-                o.optionId,
-                o.multiplier
-            )
-        );
-        bytes32 digest = _hashTypedDataV4(structHash);
+        bytes32 digest = _computeClaimDigest(beneficiary, totalAllocation, o, nonce);
         address signer = ECDSA.recover(digest, signature);
         if (signer != beneficiary) revert InvalidClaimSignature();
+    }
+
+    /// @inheritdoc ISnagAirdropV2Claim
+    function cancelNonce(bytes32 nonce) external {
+        _nonceUsed[_msgSender()][nonce] = true;
     }
 
     /// @dev Validates Merkle proof and records consumption.
@@ -415,18 +382,20 @@ contract SnagAirdropV2Claim is
         if (claimedAmount[beneficiary] != 0) revert AlreadyClaimed();
 
         // mirror of validateClaimOptions
-        if (uint256(o.percentageToClaim) + uint256(o.percentageToStake) > 10_000) revert PctSumExceeded();
+        uint256 pctSum = uint256(o.percentageToClaim) + uint256(o.percentageToStake);
+        if (pctSum > 10_000) revert PctSumExceeded();
+        if (pctSum < 10_000) revert PctSumNot100();
         if (o.optionId == bytes32(0)) revert InvalidOptionId();
         if (o.multiplier != multiplier) revert InvalidMultiplier();
         if (o.percentageToStake > 0) {
             if (address(stakingAddress) == address(0)) revert NoStaking();
             if (o.lockupPeriod < minLockupDuration) revert LockupTooShort();
+            if (multiplier > 0 && o.lockupPeriod < minLockupDurationForMultiplier) revert LockupTooShort();
         }
 
         bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(beneficiary, totalAllocation))));
         if (!MerkleProof.verify(proof, root, leaf)) revert InvalidProof();
 
-        uint256 pctSum = uint256(o.percentageToClaim) + uint256(o.percentageToStake);
         claimedAmount[beneficiary] = (totalAllocation * pctSum) / 10_000;
     }
 }

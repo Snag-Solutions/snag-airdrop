@@ -17,6 +17,7 @@ error StakeDoesNotExist();
 error StakeNotMatured();
 error StakeAlreadyClaimed();
 error TokenCannotBeZero();
+// Removed per-request: no per-account max stakes limit
 
 /// @title TimelockStake
 /// @author Snag
@@ -91,6 +92,42 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
             StakeInfo memory s = _stakes[_msgSender()][stakeId];
             if (s.claimed) revert StakeAlreadyClaimed();
             revert StakeNotMatured();
+        }
+    }
+
+    /// @inheritdoc ITimelockStake
+    function claimFrom(uint256 startAfterId, uint256 maxStakes)
+        external
+        nonReentrant
+        returns (uint256 totalClaimed, uint256 lastProcessedId)
+    {
+        EnumerableSet.UintSet storage set_ = _stakeIds[_msgSender()];
+        uint256 len = set_.length();
+        if (len == 0 || maxStakes == 0) return (0, startAfterId);
+
+        // Find starting index from cursor
+        uint256 startIndex = 0;
+        if (startAfterId != 0) {
+            bool found = false;
+            for (uint256 i = 0; i < len; i++) {
+                if (set_.at(i) == startAfterId) { startIndex = i + 1; found = true; break; }
+            }
+            if (!found) revert StakeDoesNotExist();
+            if (startIndex >= len) return (0, startAfterId);
+        }
+
+        uint256 end = startIndex + maxStakes;
+        if (end > len) end = len;
+
+        for (uint256 i = startIndex; i < end; i++) {
+            uint256 id = set_.at(i);
+            lastProcessedId = id;
+            uint256 claimedAmt = _claimSingleIfMature(_msgSender(), id);
+            totalClaimed += claimedAmt;
+        }
+
+        if (lastProcessedId != 0) {
+            emit BatchClaimed(_msgSender(), totalClaimed, lastProcessedId);
         }
     }
 

@@ -48,9 +48,9 @@ async function claimUnlockedAndGetAmount(
   userAddr: `0x${string}`,
   stakeId?: bigint
 ): Promise<bigint> {
-  const before = await erc20.read.balanceOf([userAddr]);
+  const before = await erc20.read.balanceOf([userAddr]) as bigint;
   await stakeAsUser.write.claimUnlocked([stakeId ?? 0n]);
-  const after = await erc20.read.balanceOf([userAddr]);
+  const after = await erc20.read.balanceOf([userAddr]) as bigint;
   return after - before;
 }
 
@@ -336,6 +336,34 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
       });
     });
   
+    describe("Pagination", function () {
+      it("claims in batches using claimUnlockedFrom", async function () {
+        const { user, stake, stakeAsUser, erc20 } = await loadFixture(deployStakeFixture);
+
+        // Create three stakes with different amounts
+        const a1 = parseEther("1");
+        const a2 = parseEther("2");
+        const a3 = parseEther("3");
+        await stakeTokens(stakeAsUser, user.account.address, a1, 10);
+        await stakeTokens(stakeAsUser, user.account.address, a2, 10);
+        await stakeTokens(stakeAsUser, user.account.address, a3, 10);
+
+        // Mature
+        await time.increase(11);
+
+        const ids = await getStakeIds(stake, user.account.address);
+        const balBefore = await erc20.read.balanceOf([user.account.address]);
+        await stakeAsUser.write.claimUnlockedFrom([0n, 2n]);
+        const balMid = await erc20.read.balanceOf([user.account.address]);
+        expect(balMid - balBefore).to.equal(a1 + a2);
+
+        // Continue from the last processed id (ids[1])
+        await stakeAsUser.write.claimUnlockedFrom([ids[1], 10n]);
+        const balAfter = await erc20.read.balanceOf([user.account.address]);
+        expect(balAfter - balMid).to.equal(a3);
+      });
+    });
+  
     describe("Edge Cases", function () {
       it("handles very short duration stakes", async function () {
         const { user, stakeAsUser, stake } = await loadFixture(deployStakeFixture);
@@ -447,7 +475,7 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
         const { stake } = await loadFixture(deployStakeFixture);
         
         // ERC165 interface ID
-        const erc165InterfaceId = "0x01ffc9a7";
+        const erc165InterfaceId: `0x${string}` = "0x01ffc9a7";
         
         const supportsERC165 = await stake.read.supportsInterface([erc165InterfaceId]);
         expect(supportsERC165).to.be.true;
@@ -457,7 +485,7 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
         const { stake } = await loadFixture(deployStakeFixture);
         
         // Random interface ID
-        const unknownInterfaceId = "0x12345678";
+        const unknownInterfaceId: `0x${string}` = "0x12345678";
         
         const supportsUnknown = await stake.read.supportsInterface([unknownInterfaceId]);
         expect(supportsUnknown).to.be.false;

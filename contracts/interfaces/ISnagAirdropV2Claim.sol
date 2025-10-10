@@ -3,6 +3,7 @@ pragma solidity 0.8.20;
 
 import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import {ILinearStake} from './ILinearStake.sol';
+import {SnagFeeModule} from '../modules/SnagFeeModule.sol';
 
 /// @title ISnagAirdropV2Claim
 /// @notice Interface for Snag airdrop claim contracts.
@@ -40,6 +41,22 @@ interface ISnagAirdropV2Claim {
     /// @param newAdmin New admin address.
     event AirdropOwnershipTransferred(address indexed previousAdmin, address indexed newAdmin);
 
+    /// @notice Emitted on successful claim.
+    event Claimed(
+        address indexed beneficiary,
+        uint256 amountClaimed,
+        uint256 amountStaked,
+        uint256 bonus,
+        uint256 protocolTake,
+        uint32  lockupPeriod,
+        address feeReceiver,
+        uint256 feeWei,
+        uint64  feeUsdCents,
+        SnagFeeModule.FeeOverflowMode mode,
+        bool    stakeSelected,
+        bytes32 optionId
+    );
+
     /// @notice Emitted after successful initialization by the factory.
     event AirdropInitialized(
         address admin,
@@ -58,35 +75,10 @@ interface ISnagAirdropV2Claim {
         uint64  feeClaimUsdCents,
         uint64  feeStakeUsdCents,
         uint64  feeCapUsdCents,
-        uint8   overflowMode,
+        SnagFeeModule.FeeOverflowMode overflowMode,
         uint16  protocolTokenShareBips
     );
 
-    /// @notice Emitted on a successful claim.
-    /// @param beneficiary The user receiving the tokens/stakes.
-    /// @param amountClaimed Tokens transferred directly to the user.
-    /// @param amountStaked  Tokens staked on behalf of the user.
-    /// @param bonus         Bonus tokens included in the stake path.
-    /// @param protocolTake  Protocol token-share computed from (claimed+staked+bonus).
-    /// @param lockupPeriod  Effective lockup used for the stake path.
-    /// @param feeReceiver   Address that received the ETH fee.
-    /// @param feeWei        Wei amount paid as fee for this action.
-    /// @param feeUsdCents   Configured USD-cents used to compute feeWei.
-    /// @param mode          Overflow mode in effect when the fee was collected.
-    /// @param stakeSelected True if staking path was selected.
-    event Claimed(
-        address indexed beneficiary,
-        uint256 amountClaimed,
-        uint256 amountStaked,
-        uint256 bonus,
-        uint256 protocolTake,
-        uint32  lockupPeriod,
-        address feeReceiver,
-        uint256 feeWei,
-        uint64  feeUsdCents,
-        uint8   mode,
-        bool    stakeSelected
-    );
 
     // ---------- Read-only (auto getters in Claim) ----------
 
@@ -146,6 +138,7 @@ interface ISnagAirdropV2Claim {
         bytes32[] calldata proof,
         uint256 totalAllocation,
         ClaimOptions calldata options,
+        bytes32 nonce,
         bytes calldata signature
     ) external payable returns (uint256 amountClaimed, uint256 amountStaked);
 
@@ -166,4 +159,9 @@ interface ISnagAirdropV2Claim {
     /// @notice Transfer admin ownership to a new address (admin only).
     /// @param newAdmin The new admin address.
     function transferOwnership(address newAdmin) external;
+
+    /// @notice Cancel a previously signed ClaimRequest by marking its `nonce` as used for the caller.
+    /// @dev After cancellation, any signature containing this nonce for the caller will revert.
+    /// @param nonce The 32-byte nonce to cancel.
+    function cancelNonce(bytes32 nonce) external;
 }

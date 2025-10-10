@@ -11,7 +11,6 @@ import { IBaseStake } from "./interfaces/IBaseStake.sol";
 
 error AmountMustBePositive();
 error DurationMustBePositive();
-error TransferFailed();
 error StakeDoesNotExist();
 
 /// @title LinearStake

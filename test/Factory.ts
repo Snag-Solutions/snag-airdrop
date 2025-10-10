@@ -364,7 +364,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
   })
 
   it('reverts with Expired if past deadline', async function () {
-    const { factory, protocolSigner, expectedDeployer, feed, erc20, publicClient } =
+    const { factory, protocolSigner, expectedDeployer, feed, erc20, publicClient, chainId } =
       await loadFixture(deployFixture)
 
     const currentTs = Number((await publicClient.getBlock()).timestamp)
@@ -382,7 +382,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
     const sig = await protocolSigner.signTypedData({
       account: protocolSigner.account,
-      domain: eip712Domain(getAddress(factory.address)),
+      domain: eip712Domain(getAddress(factory.address), chainId),
       types: CreateTypes,
       primaryType: 'CreateAirdrop',
       message,

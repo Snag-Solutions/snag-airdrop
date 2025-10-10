@@ -116,13 +116,13 @@ contract LinearStake is Context, ERC165, ILinearStake {
         returns (uint256[] memory ids, uint256[] memory amts)
     {
         EnumerableSet.UintSet storage set_ = _stakeIds[account];
-        uint256 len = set_.length();
         if (stakeId != 0) {
             ids  = new uint256[](1);
             amts = new uint256[](1);
             ids[0]  = stakeId;
             amts[0] = _claimableSingle(account, stakeId);
         } else {
+            uint256 len = set_.length();
             ids  = new uint256[](len);
             amts = new uint256[](len);
             for (uint256 i = 0; i < len; i++) {

@@ -867,6 +867,13 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       expect(consumed).to.equal(expectedClaim + expectedStake);
     });
 
+    it("transferOwnership reverts on zero address", async () => {
+      const { claimAsAdmin } = await loadFixture(deployFixture);
+      await expect(
+        claimAsAdmin.write.transferOwnership([zeroAddress])
+      ).to.be.rejectedWith('ZeroAddress');
+    });
+
     it("routes fees to updated partnerOverflow after rotation in RouteToPartner mode", async () => {
       const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow, newPartner] =
         await hre.viem.getWalletClients();

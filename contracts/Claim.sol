@@ -15,7 +15,7 @@ import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 
 import {
     AirdropNotActive, AlreadyClaimed, AlreadyInitialized, InvalidProof, PctSumExceeded, PctSumNot100, NoStaking,
-    LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, SignatureAlreadyUsed, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer
+    LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, SignatureAlreadyUsed, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer, ZeroAddress
 } from "./errors/Errors.sol";
 
 import {SnagFeeModule} from "./modules/SnagFeeModule.sol";
@@ -369,6 +369,7 @@ contract SnagAirdropV2Claim is
 
     /// @inheritdoc ISnagAirdropV2Claim
     function transferOwnership(address newAdmin) external onlyAdmin {
+        if (newAdmin == address(0)) revert ZeroAddress();
         address previousAdmin = _admin;
         _admin = newAdmin;
         emit AirdropOwnershipTransferred(previousAdmin, newAdmin);

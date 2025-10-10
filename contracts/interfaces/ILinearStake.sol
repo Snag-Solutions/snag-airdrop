@@ -41,6 +41,17 @@ interface ILinearStake is IBaseStake {
     function claimUnlocked(uint256 stakeId) external returns (uint256 totalClaimed);
 
     /**
+     * @notice Claim unlocked tokens from a batch of stakes, starting after a cursor.
+     * @param startAfterId Stake ID cursor. Use 0 to start from the beginning. If non-zero, must be owned by caller.
+     * @param maxStakes Maximum number of stakes to process in this call.
+     * @return totalClaimed Total amount of tokens transferred to the caller in this batch.
+     * @return lastProcessedId The last stake ID processed (use as cursor for next batch).
+     */
+    function claimUnlockedFrom(uint256 startAfterId, uint256 maxStakes)
+        external
+        returns (uint256 totalClaimed, uint256 lastProcessedId);
+
+    /**
      * @notice Get all stake IDs owned by a specific account.
      * @param account The address of the user to query
      * @return stakeIds Array of all stake IDs owned by the account
@@ -79,4 +90,10 @@ interface ILinearStake is IBaseStake {
     /// @param amount The amount of tokens claimed
     /// @dev This event provides a record of token claims for tracking and analytics.
     event Claimed(address indexed user, uint256 amount);
+
+    /// @notice Emitted after a batch claim processes a set of stakes.
+    /// @param user The address performing the batch claim
+    /// @param totalClaimed The total amount transferred in this batch
+    /// @param lastProcessedId The last stake id processed in this batch
+    event BatchClaimed(address indexed user, uint256 totalClaimed, uint256 lastProcessedId);
 }

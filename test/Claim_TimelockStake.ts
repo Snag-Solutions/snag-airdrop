@@ -153,6 +153,106 @@ describe("Claim + TimelockStake integration", function () {
     expect(deltaStake).to.equal(expectedToStake);
   });
 
+  it("timelock: claims matured in batches using claimFrom", async function () {
+    const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow] =
+      await hre.viem.getWalletClients();
+
+    const erc20 = await hre.viem.deployContract("MockERC20", [deployer.account.address]);
+    const timelock = await hre.viem.deployContract("TimelockStake", [erc20.address]);
+    const feed = await hre.viem.deployContract("MockAggregatorV3", [8, 3000n * 10n ** 8n]);
+    const factory = await hre.viem.deployContract("MockFactoryWithRoles", [protocolAdmin.account.address]);
+
+    const allocation = parseEther("6");
+    const list: [`0x${string}`, bigint][] = [[user.account.address, allocation]];
+    const tree = StandardMerkleTree.of(list, ["address", "uint256"]);
+    const root = tree.root as `0x${string}`;
+
+    const multiplier = 0n;
+    const ip = { admin: partnerAdmin.account.address, root, asset: erc20.address, staking: timelock.address, maxBonus: parseEther("1000"), minLockupDuration: 1, minLockupDurationForMultiplier: 60, multiplier } as const;
+    const cfg = { priceFeed: feed.address, maxPriceAge: 3600, protocolTreasury: protocolTreasury.account.address, protocolOverflow: protocolOverflow.account.address, partnerOverflow: overflowPartner.account.address, feeClaimUsdCents: 0n, feeStakeUsdCents: 0n, feeCapUsdCents: 10_000n, overflowMode: 0, protocolTokenShareBips: 0 } as const;
+    const bytecode = (await hre.artifacts.readArtifact("SnagAirdropV2Claim")).bytecode as `0x${string}`;
+    const initCodeHash = keccak256(bytecode);
+    const compute = (f: `0x${string}`, s: `0x${string}`, h: `0x${string}`) => { const packed = encodePacked(["bytes1","address","bytes32","bytes32"],["0xff", f, s, h]); const k = keccak256(packed); return getAddress(("0x" + k.slice(26)) as `0x${string}`) };
+
+    // Helper to deploy + fund + unpause a claim and return its address
+    async function deployClaimWithSalt(label: string): Promise<`0x${string}`> {
+      const saltX = keccak256(toBytes(label));
+      await factory.write.deployClaim([ip, cfg, saltX]);
+      const addr = compute(factory.address, saltX, initCodeHash);
+      await (await hre.viem.getContractAt("MockERC20", erc20.address, { client: { wallet: deployer } })).write.transfer([addr, parseEther("1000")]);
+      await (await hre.viem.getContractAt("SnagAirdropV2Claim", addr, { client: { wallet: partnerAdmin } })).write.unpause();
+      return addr;
+    }
+
+    // mint 3 stakes via claim (route 100% to timelock each call)
+    const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
+    const me = entries.find(([, v]) => v[0] === user.account.address)!;
+    const proof = tree.getProof(me[1]) as `0x${string}`[];
+    const opts = { optionId: keccak256(toBytes("tl-batch")), multiplier: 0n, percentageToClaim: 0, percentageToStake: 10_000, lockupPeriod: 5 } as const;
+    const sign = async (claimAddress: `0x${string}`, nonceLabel: string) => user.signTypedData({
+      account: user.account,
+      domain: { name: "SnagAirdropClaim", version: "1", chainId: await user.getChainId(), verifyingContract: claimAddress },
+      types: { ClaimRequest: [
+        { name: "claimAddress", type: "address" },
+        { name: "beneficiary", type: "address" },
+        { name: "totalAllocation", type: "uint256" },
+        { name: "percentageToClaim", type: "uint16" },
+        { name: "percentageToStake", type: "uint16" },
+        { name: "lockupPeriod", type: "uint32" },
+        { name: "optionId", type: "bytes32" },
+        { name: "multiplier", type: "uint256" },
+        { name: "nonce", type: "bytes32" },
+      ] },
+      primaryType: "ClaimRequest",
+      message: {
+        claimAddress: claimAddress as `0x${string}`,
+        beneficiary: user.account.address,
+        totalAllocation: allocation,
+        percentageToClaim: 0,
+        percentageToStake: 10_000,
+        lockupPeriod: 5,
+        optionId: opts.optionId,
+        multiplier,
+        nonce: keccak256(toBytes(nonceLabel)),
+      },
+    });
+    // Deploy and claim three separate airdrops to create three timelock stakes
+    const claimAddr1 = await deployClaimWithSalt("salt-tl-batch-1");
+    const claim1 = await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr1);
+    const feeWei = await claim1.read.validateClaimOptions([opts]);
+    await (await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr1, { client: { wallet: user } })).write.claimFor([
+      user.account.address, proof, allocation, opts, keccak256(toBytes('n1')), await sign(claimAddr1, 'n1')
+    ], { value: feeWei });
+
+    const claimAddr2 = await deployClaimWithSalt("salt-tl-batch-2");
+    await (await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr2, { client: { wallet: user } })).write.claimFor([
+      user.account.address, proof, allocation, opts, keccak256(toBytes('n2')), await sign(claimAddr2, 'n2')
+    ], { value: feeWei });
+
+    const claimAddr3 = await deployClaimWithSalt("salt-tl-batch-3");
+    await (await hre.viem.getContractAt("SnagAirdropV2Claim", claimAddr3, { client: { wallet: user } })).write.claimFor([
+      user.account.address, proof, allocation, opts, keccak256(toBytes('n3')), await sign(claimAddr3, 'n3')
+    ], { value: feeWei });
+
+    // Mature
+    await time.increase(6);
+
+    const ids = await timelock.read.getStakeIds([user.account.address]);
+    expect(ids.length).to.equal(3);
+
+    // First batch: claim 2
+    const erc20AsUser = await hre.viem.getContractAt("MockERC20", erc20.address, { client: { wallet: user } });
+    const before = await erc20AsUser.read.balanceOf([user.account.address]);
+    await (await hre.viem.getContractAt("TimelockStake", timelock.address, { client: { wallet: user } })).write.claimFrom([0n, 2n]);
+    const mid = await erc20AsUser.read.balanceOf([user.account.address]);
+    expect(mid - before).to.equal(allocation * 2n);
+
+    // Next batch: continue from ids[1]
+    await (await hre.viem.getContractAt("TimelockStake", timelock.address, { client: { wallet: user } })).write.claimFrom([ids[1], 10n]);
+    const after = await erc20AsUser.read.balanceOf([user.account.address]);
+    expect(after - mid).to.equal(allocation);
+  });
+
   it("multiple positions: two stakes, different maturities; claim(0) claims matured only", async function () {
     const [deployer, partnerAdmin, user, protocolAdmin, overflowPartner, protocolTreasury, protocolOverflow] =
       await hre.viem.getWalletClients();

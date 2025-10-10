@@ -71,6 +71,43 @@ contract LinearStake is Context, ERC165, ILinearStake {
         }
     }
 
+    /// @notice Batched claim of unlocked tokens starting after a cursor ID.
+    /// @param startAfterId Stake ID cursor (0 means start from first).
+    /// @param maxStakes Maximum number of stakes to process.
+    /// @return totalClaimed Total amount transferred in this batch.
+    /// @return lastProcessedId The last stake ID processed (use for next cursor).
+    function claimUnlockedFrom(uint256 startAfterId, uint256 maxStakes)
+        external
+        returns (uint256 totalClaimed, uint256 lastProcessedId)
+    {
+        EnumerableSet.UintSet storage set_ = _stakeIds[_msgSender()];
+        uint256 len = set_.length();
+        if (len == 0 || maxStakes == 0) return (0, startAfterId);
+
+        // Find starting index
+        uint256 startIndex = 0;
+        if (startAfterId != 0) {
+            bool found = false;
+            for (uint256 i = 0; i < len; i++) {
+                if (set_.at(i) == startAfterId) { startIndex = i + 1; found = true; break; }
+            }
+            if (!found) revert StakeDoesNotExist();
+            if (startIndex >= len) return (0, startAfterId);
+        }
+
+        uint256 end = startIndex + maxStakes;
+        if (end > len) end = len;
+        for (uint256 i = startIndex; i < end; i++) {
+            uint256 id = set_.at(i);
+            lastProcessedId = id;
+            totalClaimed += _claimUnlockedSingle(_msgSender(), id);
+        }
+
+        if (lastProcessedId != 0) {
+            emit BatchClaimed(_msgSender(), totalClaimed, lastProcessedId);
+        }
+    }
+
     /// @inheritdoc IBaseStake
     function claimable(uint256 stakeId, address account)
         external

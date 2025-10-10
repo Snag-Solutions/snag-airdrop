@@ -123,6 +123,36 @@ describe("TimelockStake", function () {
     });
   });
 
+  describe("Pagination", function () {
+    it("claims in batches using claimFrom", async function () {
+      const { user, stake, stakeAsUser, erc20 } = await loadFixture(deployStakeFixture);
+
+      // Create three stakes with same short duration
+      const a1 = parseEther("1");
+      const a2 = parseEther("2");
+      const a3 = parseEther("3");
+      await stakeTokens(stakeAsUser, user.account.address, a1, 5);
+      await stakeTokens(stakeAsUser, user.account.address, a2, 5);
+      await stakeTokens(stakeAsUser, user.account.address, a3, 5);
+
+      // Mature
+      await time.increase(6);
+
+      const ids = await getStakeIds(stake, user.account.address);
+      const balBefore = await erc20.read.balanceOf([user.account.address]);
+
+      // First batch: claim 2
+      await stakeAsUser.write.claimFrom([0n, 2n]);
+      const balMid = await erc20.read.balanceOf([user.account.address]);
+      expect(balMid - balBefore).to.equal(a1 + a2);
+
+      // Continue from the last processed id (ids[1])
+      await stakeAsUser.write.claimFrom([ids[1], 10n]);
+      const balAfter = await erc20.read.balanceOf([user.account.address]);
+      expect(balAfter - balMid).to.equal(a3);
+    });
+  });
+
   describe("Errors and enumeration", function () {
     it("reverts when claiming non-existent stake ID", async function () {
       const { stakeAsUser } = await loadFixture(deployStakeFixture);
@@ -154,4 +184,3 @@ describe("TimelockStake", function () {
     });
   });
 });
-

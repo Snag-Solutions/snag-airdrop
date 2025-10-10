@@ -222,6 +222,7 @@ contract SnagAirdropV2Claim is
         if (o.percentageToStake > 0) {
             if (address(stakingAddress) == address(0)) revert NoStaking();
             if (o.lockupPeriod < minLockupDuration) revert LockupTooShort();
+            if (multiplier > 0 && o.lockupPeriod < minLockupDurationForMultiplier) revert LockupTooShort();
         }
         bool stakeSelected = (o.percentageToStake > 0);
         return requiredFeeWei(stakeSelected);
@@ -412,6 +413,7 @@ contract SnagAirdropV2Claim is
         if (o.percentageToStake > 0) {
             if (address(stakingAddress) == address(0)) revert NoStaking();
             if (o.lockupPeriod < minLockupDuration) revert LockupTooShort();
+            if (multiplier > 0 && o.lockupPeriod < minLockupDurationForMultiplier) revert LockupTooShort();
         }
 
         bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(beneficiary, totalAllocation))));

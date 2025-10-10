@@ -32,6 +32,7 @@ error LockupTooShort();
 error InvalidOptionId();
 error InvalidMultiplier();
 error InvalidClaimSignature();
+error SignatureAlreadyUsed();
 error OutOfTokens(uint256 required, uint256 available);
 
 /// ---------------- Roles ----------------

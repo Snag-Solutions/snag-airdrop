@@ -15,7 +15,7 @@ import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 
 import {
     AirdropNotActive, AlreadyClaimed, InvalidProof, PctSumExceeded, PctSumNot100, NoStaking,
-    LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer
+    LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, SignatureAlreadyUsed, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer
 } from "./errors/Errors.sol";
 
 import {SnagFeeModule} from "./modules/SnagFeeModule.sol";
@@ -88,10 +88,13 @@ contract SnagAirdropV2Claim is
     /// @notice Initialization guard.
     bool private _initialized;
 
+    /// @notice Replay protection: per-beneficiary used nonces.
+    mapping(address => mapping(bytes32 => bool)) private _nonceUsed;
+
     /// @notice EIP-712 ClaimRequest typehash.
     bytes32 private constant CLAIM_TYPEHASH =
         keccak256(
-            'ClaimRequest(address claimAddress,address beneficiary,uint256 totalAllocation,uint16 percentageToClaim,uint16 percentageToStake,uint32 lockupPeriod,bytes32 optionId,uint256 multiplier)'
+            'ClaimRequest(address claimAddress,address beneficiary,uint256 totalAllocation,uint16 percentageToClaim,uint16 percentageToStake,uint32 lockupPeriod,bytes32 optionId,uint256 multiplier,bytes32 nonce)'
         );
 
     /// @notice Restricts function to the claim admin.
@@ -232,6 +235,7 @@ contract SnagAirdropV2Claim is
         bytes32[] calldata proof,
         uint256 totalAllocation,
         ClaimOptions calldata o,
+        bytes32 nonce,
         bytes calldata signature
     )
         external
@@ -240,8 +244,10 @@ contract SnagAirdropV2Claim is
         nonReentrant
         returns (uint256 amountClaimed, uint256 amountStaked)
     {
-        _verifySignature(beneficiary, totalAllocation, o, signature);
+        _verifySignature(beneficiary, totalAllocation, o, nonce, signature);
         _verifyAndRecordClaim(beneficiary, totalAllocation, proof, o);
+        if (_nonceUsed[beneficiary][nonce]) revert SignatureAlreadyUsed();
+        _nonceUsed[beneficiary][nonce] = true;
 
         // 1) Collect user fee (stake path beats claim path)
         bool stakeSelected = (o.percentageToStake > 0);
@@ -290,6 +296,30 @@ contract SnagAirdropV2Claim is
             overflowMode,
             stakeSelected
         );
+    }
+
+    /// @dev Computes the EIP-712 digest for a ClaimRequest.
+    function _computeClaimDigest(
+        address beneficiary,
+        uint256 totalAllocation,
+        ClaimOptions calldata o,
+        bytes32 nonce
+    ) private view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                CLAIM_TYPEHASH,
+                address(this),
+                beneficiary,
+                totalAllocation,
+                o.percentageToClaim,
+                o.percentageToStake,
+                o.lockupPeriod,
+                o.optionId,
+                o.multiplier,
+                nonce
+            )
+        );
+        return _hashTypedDataV4(structHash);
     }
 
     /// @dev Internal: perform token transfers and optional staking.
@@ -350,24 +380,17 @@ contract SnagAirdropV2Claim is
         address beneficiary,
         uint256 totalAllocation,
         ClaimOptions calldata o,
+        bytes32 nonce,
         bytes calldata signature
     ) private view {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                CLAIM_TYPEHASH,
-                address(this),
-                beneficiary,
-                totalAllocation,
-                o.percentageToClaim,
-                o.percentageToStake,
-                o.lockupPeriod,
-                o.optionId,
-                o.multiplier
-            )
-        );
-        bytes32 digest = _hashTypedDataV4(structHash);
+        bytes32 digest = _computeClaimDigest(beneficiary, totalAllocation, o, nonce);
         address signer = ECDSA.recover(digest, signature);
         if (signer != beneficiary) revert InvalidClaimSignature();
+    }
+
+    /// @inheritdoc ISnagAirdropV2Claim
+    function cancelNonce(bytes32 nonce) external {
+        _nonceUsed[_msgSender()][nonce] = true;
     }
 
     /// @dev Validates Merkle proof and records consumption.

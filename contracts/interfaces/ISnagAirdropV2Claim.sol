@@ -137,6 +137,7 @@ interface ISnagAirdropV2Claim {
         bytes32[] calldata proof,
         uint256 totalAllocation,
         ClaimOptions calldata options,
+        bytes32 nonce,
         bytes calldata signature
     ) external payable returns (uint256 amountClaimed, uint256 amountStaked);
 
@@ -157,4 +158,9 @@ interface ISnagAirdropV2Claim {
     /// @notice Transfer admin ownership to a new address (admin only).
     /// @param newAdmin The new admin address.
     function transferOwnership(address newAdmin) external;
+
+    /// @notice Cancel a previously signed ClaimRequest by marking its `nonce` as used for the caller.
+    /// @dev After cancellation, any signature containing this nonce for the caller will revert.
+    /// @param nonce The 32-byte nonce to cancel.
+    function cancelNonce(bytes32 nonce) external;
 }

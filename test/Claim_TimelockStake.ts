@@ -123,6 +123,7 @@ describe("Claim + TimelockStake integration", function () {
           { name: "lockupPeriod", type: "uint32" },
           { name: "optionId", type: "bytes32" },
           { name: "multiplier", type: "uint256" },
+          { name: "nonce", type: "bytes32" },
         ],
       } as const;
       const message = {
@@ -134,13 +135,14 @@ describe("Claim + TimelockStake integration", function () {
         lockupPeriod: 120,
         optionId: opts.optionId,
         multiplier,
+        nonce: keccak256(toBytes('nonce-timelock-1')),
       } as const;
       return user.signTypedData({ account: user.account, domain, types, primaryType: "ClaimRequest", message });
     })();
 
     const claimBalBefore = await erc20.read.balanceOf([claim.address]);
     const stakeBalBefore = await erc20.read.balanceOf([timelock.address]);
-    await asUser.write.claimFor([user.account.address, proof, allocation, opts, sig], { value: feeWei });
+    await asUser.write.claimFor([user.account.address, proof, allocation, opts, keccak256(toBytes('nonce-timelock-1')), sig], { value: feeWei });
     const claimBalAfter = await erc20.read.balanceOf([claim.address]);
     const stakeBalAfter = await erc20.read.balanceOf([timelock.address]);
     const deltaClaim = claimBalBefore - claimBalAfter;
@@ -214,7 +216,7 @@ describe("Claim + TimelockStake integration", function () {
     // Helper to sign
     async function sign(opts: any): Promise<`0x${string}`> {
       const domain = { name: "SnagAirdropClaim", version: "1", chainId: await user.getChainId(), verifyingContract: claim.address };
-      const types = {
+    const types = {
         ClaimRequest: [
           { name: "claimAddress", type: "address" },
           { name: "beneficiary", type: "address" },
@@ -224,6 +226,7 @@ describe("Claim + TimelockStake integration", function () {
           { name: "lockupPeriod", type: "uint32" },
           { name: "optionId", type: "bytes32" },
           { name: "multiplier", type: "uint256" },
+          { name: "nonce", type: "bytes32" },
         ],
       } as const;
       const message = {
@@ -235,6 +238,7 @@ describe("Claim + TimelockStake integration", function () {
         lockupPeriod: opts.lockupPeriod,
         optionId: keccak256(toBytes(opts.optionId)),
         multiplier,
+        nonce: keccak256(toBytes('nonce-timelock-1')),
       } as const;
       return user.signTypedData({ account: user.account, domain, types, primaryType: "ClaimRequest", message });
     }
@@ -246,7 +250,7 @@ describe("Claim + TimelockStake integration", function () {
     await asUser.write.claimFor(
       [user.account.address, proof, allocation, {
         optionId: keccak256(toBytes(opts1.optionId)), multiplier, percentageToClaim: 0, percentageToStake: 10_000, lockupPeriod: opts1.lockupPeriod
-      }, await sign(opts1)],
+      }, keccak256(toBytes('nonce-timelock-1')), await sign(opts1)],
       { value: 0n }
     );
 
@@ -265,7 +269,7 @@ describe("Claim + TimelockStake integration", function () {
     await asUser2.write.claimFor(
       [user.account.address, proof2, allocation, {
         optionId: keccak256(toBytes(opts2.optionId)), multiplier, percentageToClaim: 0, percentageToStake: 10_000, lockupPeriod: opts2.lockupPeriod
-      }, await (async () => {
+      }, keccak256(toBytes('nonce-timelock-3')), await (async () => {
         const domain = { name: "SnagAirdropClaim", version: "1", chainId: await user.getChainId(), verifyingContract: claimAddr2 };
         const types = {
           ClaimRequest: [
@@ -277,6 +281,7 @@ describe("Claim + TimelockStake integration", function () {
             { name: "lockupPeriod", type: "uint32" },
             { name: "optionId", type: "bytes32" },
             { name: "multiplier", type: "uint256" },
+            { name: "nonce", type: "bytes32" },
           ],
         } as const;
         const message = {
@@ -288,6 +293,7 @@ describe("Claim + TimelockStake integration", function () {
           lockupPeriod: opts2.lockupPeriod,
           optionId: keccak256(toBytes(opts2.optionId)),
           multiplier,
+          nonce: keccak256(toBytes('nonce-timelock-3')),
         } as const;
         return user.signTypedData({ account: user.account, domain, types, primaryType: "ClaimRequest", message });
       })()],

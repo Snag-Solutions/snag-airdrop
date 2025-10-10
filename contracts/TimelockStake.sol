@@ -95,11 +95,7 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
         }
     }
 
-    /// @notice Batched claim of matured stakes starting after a cursor ID.
-    /// @param startAfterId Stake ID cursor (0 means start from first).
-    /// @param maxStakes Maximum number of stakes to attempt in this batch.
-    /// @return totalClaimed Total claimed in this batch.
-    /// @return lastProcessedId The last ID processed (use for next cursor).
+    /// @inheritdoc ITimelockStake
     function claimFrom(uint256 startAfterId, uint256 maxStakes)
         external
         nonReentrant

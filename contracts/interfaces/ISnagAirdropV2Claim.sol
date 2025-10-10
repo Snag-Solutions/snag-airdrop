@@ -53,7 +53,8 @@ interface ISnagAirdropV2Claim {
         uint256 feeWei,
         uint64  feeUsdCents,
         SnagFeeModule.FeeOverflowMode mode,
-        bool    stakeSelected
+        bool    stakeSelected,
+        bytes32 optionId
     );
 
     /// @notice Emitted after successful initialization by the factory.

@@ -270,7 +270,8 @@ contract SnagAirdropV2Claim is
             feeWeiPaid,
             usdFee,
             overflowMode,
-            stakeSelected
+            stakeSelected,
+            o.optionId
         );
     }
 

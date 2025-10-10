@@ -70,11 +70,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
         }
     }
 
-    /// @notice Batched claim of unlocked tokens starting after a cursor ID.
-    /// @param startAfterId Stake ID cursor (0 means start from first).
-    /// @param maxStakes Maximum number of stakes to process.
-    /// @return totalClaimed Total amount transferred in this batch.
-    /// @return lastProcessedId The last stake ID processed (use for next cursor).
+    /// @inheritdoc ILinearStake
     function claimUnlockedFrom(uint256 startAfterId, uint256 maxStakes)
         external
         returns (uint256 totalClaimed, uint256 lastProcessedId)

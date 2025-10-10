@@ -447,7 +447,7 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
         const { stake } = await loadFixture(deployStakeFixture);
         
         // ERC165 interface ID
-        const erc165InterfaceId = "0x01ffc9a7";
+        const erc165InterfaceId: `0x${string}` = "0x01ffc9a7";
         
         const supportsERC165 = await stake.read.supportsInterface([erc165InterfaceId]);
         expect(supportsERC165).to.be.true;
@@ -457,7 +457,7 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
         const { stake } = await loadFixture(deployStakeFixture);
         
         // Random interface ID
-        const unknownInterfaceId = "0x12345678";
+        const unknownInterfaceId: `0x${string}` = "0x12345678";
         
         const supportsUnknown = await stake.read.supportsInterface([unknownInterfaceId]);
         expect(supportsUnknown).to.be.false;

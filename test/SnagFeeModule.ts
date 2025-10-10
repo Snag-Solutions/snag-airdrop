@@ -156,9 +156,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
-      200,
-      500,
+      100n,
+      200n,
+      500n,
       1, // RouteToPartner
       0,
     ])
@@ -199,9 +199,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
-      200,
-      500,
+      100n,
+      200n,
+      500n,
       2, // RouteToProtocol
       0,
     ])
@@ -266,9 +266,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100,
+      100n,
       0,
-      10_000,
+      10_000n,
       0,
       0,
     ])
@@ -306,9 +306,9 @@ describe('Fee Module: USD fees, caps, overflow (harness)', function () {
       treasury.account.address,
       protocol.account.address,
       partner.account.address,
-      100, // claim
-      200, // stake
-      300, // cap
+      100n, // claim
+      200n, // stake
+      300n, // cap
       1,   // RouteToPartner
       0,
     ])

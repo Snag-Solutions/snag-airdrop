@@ -12,6 +12,9 @@ error AlreadyDeployed();
 error Expired();
 error UnexpectedDeployer();
 error InvalidSigner();
+error ZeroAddress();
+error RoleAlreadyGranted();
+error RoleNotGranted();
 
 /// ---------------- Price / Fees ----------------
 error BadPrice();

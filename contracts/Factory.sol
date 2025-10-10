@@ -13,7 +13,7 @@ import {IBaseStake} from './interfaces/IBaseStake.sol';
 import {SnagAirdropV2Claim} from './Claim.sol';
 import {SnagFeeModule} from './modules/SnagFeeModule.sol';
 
-import {ZeroAdmin, InvalidToken, InvalidStakingContract, AlreadyDeployed, Expired, UnexpectedDeployer, InvalidSigner, InsufficientDeploymentFee, RefundFailed} from './errors/Errors.sol';
+import {ZeroAdmin, InvalidToken, InvalidStakingContract, AlreadyDeployed, Expired, UnexpectedDeployer, InvalidSigner, InsufficientDeploymentFee, RefundFailed, ZeroAddress, RoleAlreadyGranted, RoleNotGranted} from './errors/Errors.sol';
 
 import {PriceLib} from './libs/PriceLib.sol';
 
@@ -52,6 +52,8 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, 
     function grantProtocolSigner(
         address signer
     ) external onlyRole(PROTOCOL_ADMIN_ROLE) {
+        if (signer == address(0)) revert ZeroAddress();
+        if (hasRole(PROTOCOL_SIGNER_ROLE, signer)) revert RoleAlreadyGranted();
         _grantRole(PROTOCOL_SIGNER_ROLE, signer);
     }
 
@@ -59,6 +61,8 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, 
     function revokeProtocolSigner(
         address signer
     ) external onlyRole(PROTOCOL_ADMIN_ROLE) {
+        if (signer == address(0)) revert ZeroAddress();
+        if (!hasRole(PROTOCOL_SIGNER_ROLE, signer)) revert RoleNotGranted();
         _revokeRole(PROTOCOL_SIGNER_ROLE, signer);
     }
 

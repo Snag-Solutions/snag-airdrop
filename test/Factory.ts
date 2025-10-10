@@ -120,13 +120,13 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
     minLockup?: number
     minLockupForMultiplier?: number
     multiplier?: bigint
-    feeClaimUsdCents?: number
-    feeStakeUsdCents?: number
-    feeCapUsdCents?: number
+    feeClaimUsdCents?: number | bigint
+    feeStakeUsdCents?: number | bigint
+    feeCapUsdCents?: number | bigint
     maxPriceAge?: number
     overflowMode?: OverflowMode
     protocolTokenShareBips?: number
-    deploymentFeeUsdCents?: number
+    deploymentFeeUsdCents?: number | bigint
     deadline?: number
   }) {
     const now = Math.floor(Date.now() / 1000)
@@ -150,9 +150,9 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       minLockupForMultiplier: args.minLockupForMultiplier ?? 0,
       multiplier: args.multiplier ?? 0n,
 
-      feeClaimUsdCents: args.feeClaimUsdCents ?? 30,
-      feeStakeUsdCents: args.feeStakeUsdCents ?? 40,
-      feeCapUsdCents: args.feeCapUsdCents ?? 2_000_000,
+      feeClaimUsdCents: BigInt(args.feeClaimUsdCents ?? 30),
+      feeStakeUsdCents: BigInt(args.feeStakeUsdCents ?? 40),
+      feeCapUsdCents: BigInt(args.feeCapUsdCents ?? 2_000_000),
       priceFeed: args.priceFeed,
       maxPriceAge: args.maxPriceAge ?? 86_400,
       protocolTreasury: args.protocolTreasury,
@@ -160,7 +160,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       partnerOverflow: args.partnerOverflow,
       overflowMode: args.overflowMode ?? OverflowMode.Cancel,
       protocolTokenShareBips: args.protocolTokenShareBips ?? 100,
-      deploymentFeeUsdCents: args.deploymentFeeUsdCents ?? 0,
+      deploymentFeeUsdCents: BigInt(args.deploymentFeeUsdCents ?? 0),
     }
   }
 
@@ -208,10 +208,17 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       { client: { wallet: other } },
     )
 
-    await expect(asAdmin.write.grantProtocolSigner([other.account.address])).to
-      .not.be.rejected
-    await expect(asAdmin.write.revokeProtocolSigner([other.account.address])).to
-      .not.be.rejected
+    // zero address guards
+    await expect(asAdmin.write.grantProtocolSigner([zeroAddress])).to.be.rejectedWith('ZeroAddress')
+    await expect(asAdmin.write.revokeProtocolSigner([zeroAddress])).to.be.rejectedWith('ZeroAddress')
+
+    // grant then duplicate grant should revert
+    await expect(asAdmin.write.grantProtocolSigner([other.account.address])).to.not.be.rejected
+    await expect(asAdmin.write.grantProtocolSigner([other.account.address])).to.be.rejectedWith('RoleAlreadyGranted')
+
+    // revoke then duplicate revoke should revert
+    await expect(asAdmin.write.revokeProtocolSigner([other.account.address])).to.not.be.rejected
+    await expect(asAdmin.write.revokeProtocolSigner([other.account.address])).to.be.rejectedWith('RoleNotGranted')
 
     await expect(
       asOther.write.grantProtocolSigner([protocolAdmin.account.address]),

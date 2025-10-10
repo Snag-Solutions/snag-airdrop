@@ -14,7 +14,7 @@ import {EIP712} from '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
 import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 
 import {
-    AirdropNotActive, AlreadyClaimed, InvalidProof, PctSumExceeded, PctSumNot100, NoStaking,
+    AirdropNotActive, AlreadyClaimed, AlreadyInitialized, InvalidProof, PctSumExceeded, PctSumNot100, NoStaking,
     LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, SignatureAlreadyUsed, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer
 } from "./errors/Errors.sol";
 
@@ -127,7 +127,7 @@ contract SnagAirdropV2Claim is
         InitParams calldata p,
         InitFeeConfig calldata cfg
     ) external onlyFactory {
-        if (_initialized) revert AlreadyClaimed(); // reuse as "already initialized" guard
+        if (_initialized) revert AlreadyInitialized();
         if (p.admin == address(0)) revert NotAdmin();
 
         _admin  = p.admin;

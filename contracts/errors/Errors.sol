@@ -9,6 +9,7 @@ error ZeroAdmin();
 error InvalidToken();
 error InvalidStakingContract();
 error AlreadyDeployed();
+error AlreadyInitialized();
 error Expired();
 error UnexpectedDeployer();
 error InvalidSigner();

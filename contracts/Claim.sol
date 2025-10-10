@@ -13,10 +13,7 @@ import {ISnagAirdropV2Claim} from './interfaces/ISnagAirdropV2Claim.sol';
 import {EIP712} from '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
 import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 
-import {
-    AirdropNotActive, AlreadyClaimed, AlreadyInitialized, InvalidProof, PctSumExceeded, PctSumNot100, NoStaking,
-    LockupTooShort, InvalidOptionId, InvalidMultiplier, InvalidClaimSignature, SignatureAlreadyUsed, OutOfTokens, NotAdmin, NotProtocolAdmin, UnexpectedDeployer, ZeroAddress
-} from "./errors/Errors.sol";
+import "./errors/Errors.sol";
 
 import {SnagFeeModule} from "./modules/SnagFeeModule.sol";
 

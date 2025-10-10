@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {PriceLib} from "../libs/PriceLib.sol";
-import {InsufficientFee, FeeTransferFailed, RefundFailed} from "../errors/Errors.sol";
+import "../errors/Errors.sol";
 import {AggregatorV3Interface} from "../vendor/AggregatorV3Interface.sol";
 import {Context} from '@openzeppelin/contracts/utils/Context.sol';
 

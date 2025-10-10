@@ -13,7 +13,7 @@ import {IBaseStake} from './interfaces/IBaseStake.sol';
 import {SnagAirdropV2Claim} from './Claim.sol';
 import {SnagFeeModule} from './modules/SnagFeeModule.sol';
 
-import {ZeroAdmin, InvalidToken, InvalidStakingContract, AlreadyDeployed, Expired, UnexpectedDeployer, InvalidSigner, InsufficientDeploymentFee, RefundFailed, ZeroAddress, RoleAlreadyGranted, RoleNotGranted} from './errors/Errors.sol';
+import './errors/Errors.sol';
 
 import {PriceLib} from './libs/PriceLib.sol';
 

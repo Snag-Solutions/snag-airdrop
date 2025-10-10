@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {AggregatorV3Interface} from "../vendor/AggregatorV3Interface.sol";
-import {BadPrice, StalePrice, InvalidFeedDecimals} from "../errors/Errors.sol";
+import "../errors/Errors.sol";
 
 /// @title PriceLib
 /// @notice Chainlink native/USD conversion helpers with staleness checks.

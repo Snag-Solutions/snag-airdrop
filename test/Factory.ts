@@ -21,6 +21,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
     const [protocolAdmin, protocolSigner, expectedDeployer, other] =
       await hre.viem.getWalletClients()
     const publicClient = await hre.viem.getPublicClient()
+    const chainId = await publicClient.getChainId()
 
     // Mock feed: 8 decimals, price ~ 3000 * 10^8
     const feed = await hre.viem.deployContract('MockAggregatorV3', [8, 3_000n * 10n ** 8n])
@@ -52,6 +53,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       expectedDeployer,
       other,
       publicClient,
+      chainId: BigInt(chainId),
       factory,
       factoryAsAdmin,
       feed,
@@ -62,10 +64,11 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
   // ---------------- EIP-712 helpers ----------------
 
-  function eip712Domain(factory: Address) {
+  function eip712Domain(factory: Address, chainId: bigint) {
     return {
       name: 'SnagAirdropV2Factory',
       version: '1',
+      chainId,
       verifyingContract: factory,
     } as const
   }
@@ -73,7 +76,6 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
   const CreateTypes = {
     CreateAirdrop: [
       { name: 'factory', type: 'address' },
-      { name: 'chainId', type: 'uint256' },
       { name: 'expectedDeployer', type: 'address' },
       { name: 'deadline', type: 'uint256' },
 
@@ -135,7 +137,6 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
     return {
       factory: args.factory,
-      chainId: BigInt(31337),
       expectedDeployer: args.expectedDeployer,
       deadline: BigInt(args.deadline ?? now + 3600),
 
@@ -218,7 +219,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
   })
 
   it('deploys with valid signature (MockERC20 + MockStake)', async function () {
-    const { factory, protocolSigner, expectedDeployer, feed, erc20, mockStake } =
+    const { factory, protocolSigner, expectedDeployer, feed, erc20, mockStake, chainId } =
       await loadFixture(deployFixture)
 
     const message = buildCreatePayload({
@@ -235,7 +236,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
     const signature = await protocolSigner.signTypedData({
       account: protocolSigner.account,
-      domain: eip712Domain(getAddress(factory.address)),
+      domain: eip712Domain(getAddress(factory.address), chainId),
       types: CreateTypes,
       primaryType: 'CreateAirdrop',
       message,
@@ -276,7 +277,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
   })
 
   it('reverts with InvalidSigner if signature not from protocol signer', async function () {
-    const { factory, other, expectedDeployer, feed, erc20 } =
+    const { factory, other, expectedDeployer, feed, erc20, chainId } =
       await loadFixture(deployFixture)
 
     const message = buildCreatePayload({
@@ -291,7 +292,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
     const badSig = await other.signTypedData({
       account: other.account,
-      domain: eip712Domain(getAddress(factory.address)),
+      domain: eip712Domain(getAddress(factory.address), chainId),
       types: CreateTypes,
       primaryType: 'CreateAirdrop',
       message,
@@ -316,7 +317,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
   })
 
   it('reverts with UnexpectedDeployer if caller != expectedDeployer', async function () {
-    const { factory, protocolSigner, other, expectedDeployer, feed, erc20 } =
+    const { factory, protocolSigner, other, expectedDeployer, feed, erc20, chainId } =
       await loadFixture(deployFixture)
 
     const message = buildCreatePayload({
@@ -331,7 +332,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
     const sig = await protocolSigner.signTypedData({
       account: protocolSigner.account,
-      domain: eip712Domain(getAddress(factory.address)),
+      domain: eip712Domain(getAddress(factory.address), chainId),
       types: CreateTypes,
       primaryType: 'CreateAirdrop',
       message,
@@ -407,6 +408,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       feed,
       erc20,
       publicClient,
+      chainId,
     } = await loadFixture(deployFixture)
 
     const treasury = getAddress(other.account.address)
@@ -433,7 +435,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
     const sig = await protocolSigner.signTypedData({
       account: protocolSigner.account,
-      domain: eip712Domain(getAddress(factory.address)),
+      domain: eip712Domain(getAddress(factory.address), chainId),
       types: CreateTypes,
       primaryType: 'CreateAirdrop',
       message,
@@ -480,7 +482,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
     const message2 = { ...message, salt: keccak256(encodePacked(['string'], ['salt2'])) as `0x${string}` }
     const sig2 = await protocolSigner.signTypedData({
       account: protocolSigner.account,
-      domain: eip712Domain(getAddress(factory.address)),
+      domain: eip712Domain(getAddress(factory.address), chainId),
       types: CreateTypes,
       primaryType: 'CreateAirdrop',
       message: message2,
@@ -502,7 +504,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
   })
 
   it('rejects non-IBaseStake staking contract', async function () {
-    const { factory, protocolSigner, expectedDeployer, feed, erc20 } =
+    const { factory, protocolSigner, expectedDeployer, feed, erc20, chainId } =
       await loadFixture(deployFixture)
 
     // Try using ERC20 address as staking (does not support IBaseStake)
@@ -519,7 +521,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
 
     const sig = await protocolSigner.signTypedData({
       account: protocolSigner.account,
-      domain: eip712Domain(getAddress(factory.address)),
+      domain: eip712Domain(getAddress(factory.address), chainId),
       types: CreateTypes,
       primaryType: 'CreateAirdrop',
       message,

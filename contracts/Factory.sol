@@ -6,6 +6,7 @@ import {AccessControl} from '@openzeppelin/contracts/access/AccessControl.sol';
 import {IERC165} from '@openzeppelin/contracts/utils/introspection/IERC165.sol';
 import {ERC165Checker} from '@openzeppelin/contracts/utils/introspection/ERC165Checker.sol';
 import {ECDSA} from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
+import {EIP712} from '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
 
 import {ISnagAirdropV2Factory} from './interfaces/ISnagAirdropV2Factory.sol';
 import {IBaseStake} from './interfaces/IBaseStake.sol';
@@ -19,34 +20,7 @@ import {PriceLib} from './libs/PriceLib.sol';
 /// @title SnagAirdropV2Factory
 /// @notice Signed-only factory for deploying Snag airdrop claim contracts with immutable fee configs.
 /// @dev Uses AccessControl for protocol admin and signer roles; enforces EIP-712 authorization for deployment.
-contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl {
-    struct CreateDigest {
-        bytes32 typehash;
-        address factory;
-        uint256 chainId;
-        address expectedDeployer;
-        uint256 deadline;
-        bytes32 salt;
-        address admin;
-        bytes32 root;
-        address token;
-        address staking;
-        uint256 maxBonus;
-        uint32  minLockup;
-        uint32  minLockupForMultiplier;
-        uint256 multiplier;
-        uint64  feeClaimUsdCents;
-        uint64  feeStakeUsdCents;
-        uint64  feeCapUsdCents;
-        address priceFeed;
-        uint32  maxPriceAge;
-        address protocolTreasury;
-        address protocolOverflow;
-        address partnerOverflow;
-        uint8   overflowMode;
-        uint16  protocolTokenShareBips;
-        uint64  deploymentFeeUsdCents;
-    }
+contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, EIP712 {
     /// @notice Protocol admin role (can grant/revoke protocol signers).
     bytes32 public constant PROTOCOL_ADMIN_ROLE =
         keccak256('PROTOCOL_ADMIN_ROLE');
@@ -57,33 +31,19 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl {
     /// @inheritdoc ISnagAirdropV2Factory
     mapping(bytes32 => address) public override airdropContracts;
 
-    /// @dev EIP-712 domain separator (contract-specific).
-    bytes32 private immutable _DOMAIN_SEPARATOR;
-
     /// @dev EIP-712 typehash for create payload.
     bytes32 private constant _CREATE_TYPEHASH =
         keccak256(
-            'CreateAirdrop(address factory,uint256 chainId,address expectedDeployer,uint256 deadline,bytes32 salt,address admin,bytes32 root,address token,address staking,uint256 maxBonus,uint32 minLockup,uint32 minLockupForMultiplier,uint256 multiplier,uint64 feeClaimUsdCents,uint64 feeStakeUsdCents,uint64 feeCapUsdCents,address priceFeed,uint32 maxPriceAge,address protocolTreasury,address protocolOverflow,address partnerOverflow,uint8 overflowMode,uint16 protocolTokenShareBips,uint64 deploymentFeeUsdCents)'
+            'CreateAirdrop(address factory,address expectedDeployer,uint256 deadline,bytes32 salt,address admin,bytes32 root,address token,address staking,uint256 maxBonus,uint32 minLockup,uint32 minLockupForMultiplier,uint256 multiplier,uint64 feeClaimUsdCents,uint64 feeStakeUsdCents,uint64 feeCapUsdCents,address priceFeed,uint32 maxPriceAge,address protocolTreasury,address protocolOverflow,address partnerOverflow,uint8 overflowMode,uint16 protocolTokenShareBips,uint64 deploymentFeeUsdCents)'
         );
 
     /**
      * @notice Factory constructor.
      * @param protocolAdmin Initial protocol admin who can manage roles.
      */
-    constructor(address protocolAdmin) {
+    constructor(address protocolAdmin) EIP712('SnagAirdropV2Factory', '1') {
         _grantRole(DEFAULT_ADMIN_ROLE, protocolAdmin);
         _grantRole(PROTOCOL_ADMIN_ROLE, protocolAdmin);
-
-        _DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                keccak256(
-                    'EIP712Domain(string name,string version,address verifyingContract)'
-                ),
-                keccak256(bytes('SnagAirdropV2Factory')),
-                keccak256(bytes('1')),
-                address(this)
-            )
-        );
     }
 
     // ---------------- Role management ----------------
@@ -146,35 +106,35 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl {
         uint256 deadline,
         uint64 deploymentFeeUsdCents
     ) private view returns (bytes32) {
-        CreateDigest memory d;
-        d.typehash = _CREATE_TYPEHASH;
-        d.factory = address(this);
-        d.chainId = block.chainid;
-        d.expectedDeployer = expectedDeployer;
-        d.deadline = deadline;
-        d.salt = p.salt;
-        d.admin = p.admin;
-        d.root = p.root;
-        d.token = p.token;
-        d.staking = p.staking;
-        d.maxBonus = p.maxBonus;
-        d.minLockup = p.minLockup;
-        d.minLockupForMultiplier = p.minLockupForMultiplier;
-        d.multiplier = p.multiplier;
-        d.feeClaimUsdCents = f.feeClaimUsdCents;
-        d.feeStakeUsdCents = f.feeStakeUsdCents;
-        d.feeCapUsdCents = f.feeCapUsdCents;
-        d.priceFeed = f.priceFeed;
-        d.maxPriceAge = f.maxPriceAge;
-        d.protocolTreasury = f.protocolTreasury;
-        d.protocolOverflow = f.protocolOverflow;
-        d.partnerOverflow = f.partnerOverflow;
-        d.overflowMode = uint8(f.overflowMode);
-        d.protocolTokenShareBips = f.protocolTokenShareBips;
-        d.deploymentFeeUsdCents = deploymentFeeUsdCents;
-
-        bytes32 structHash = keccak256(abi.encode(d));
-        return keccak256(abi.encodePacked('\x19\x01', _DOMAIN_SEPARATOR, structHash));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                _CREATE_TYPEHASH,
+                address(this),
+                expectedDeployer,
+                deadline,
+                p.salt,
+                p.admin,
+                p.root,
+                p.token,
+                p.staking,
+                p.maxBonus,
+                p.minLockup,
+                p.minLockupForMultiplier,
+                p.multiplier,
+                f.feeClaimUsdCents,
+                f.feeStakeUsdCents,
+                f.feeCapUsdCents,
+                f.priceFeed,
+                f.maxPriceAge,
+                f.protocolTreasury,
+                f.protocolOverflow,
+                f.partnerOverflow,
+                uint8(f.overflowMode),
+                f.protocolTokenShareBips,
+                deploymentFeeUsdCents
+            )
+        );
+        return _hashTypedDataV4(structHash);
     }
 
     /// @inheritdoc ISnagAirdropV2Factory
@@ -239,7 +199,7 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl {
         ProtocolFeeConfig calldata f
     ) private returns (address claimAddress) {
         bytes memory bytecode = type(SnagAirdropV2Claim).creationCode;
-        assembly {
+        assembly ("memory-safe") {
             claimAddress := create2(0, add(bytecode, 32), mload(bytecode), id)
             if iszero(claimAddress) {
                 revert(0, 0)

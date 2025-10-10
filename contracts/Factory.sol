@@ -209,7 +209,7 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, 
                 revert(0, 0)
             }
         }
-        SnagAirdropV2Claim.InitFeeConfig memory cfg;
+        SnagFeeModule.InitFeeConfig memory cfg;
         cfg.priceFeed = f.priceFeed;
         cfg.maxPriceAge = f.maxPriceAge;
         cfg.protocolTreasury = f.protocolTreasury;

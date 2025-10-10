@@ -43,18 +43,7 @@ contract SnagAirdropV2Claim is
     }
 
     /// @notice Initialization bundle for fee module + protocol token share.
-    struct InitFeeConfig {
-        address priceFeed;
-        uint32  maxPriceAge;
-        address protocolTreasury;
-        address protocolOverflow;
-        address partnerOverflow;
-        uint64  feeClaimUsdCents;
-        uint64  feeStakeUsdCents;
-        uint64  feeCapUsdCents;
-        FeeOverflowMode overflowMode;
-        uint16  protocolTokenShareBips;
-    }
+    /// @dev Shared via FeeConfigTypes.InitFeeConfig
 
     /// @notice Address of the factory (deployer) used for protocol role checks.
     /// @dev Immutable to prevent spoofing; set from _msgSender() in constructor.
@@ -122,7 +111,7 @@ contract SnagAirdropV2Claim is
      */
     function initialize(
         InitParams calldata p,
-        InitFeeConfig calldata cfg
+        SnagFeeModule.InitFeeConfig calldata cfg
     ) external onlyFactory {
         if (_initialized) revert AlreadyInitialized();
         if (p.admin == address(0)) revert NotAdmin();
@@ -144,18 +133,7 @@ contract SnagAirdropV2Claim is
             tokenAsset.approve(address(stakingAddress), type(uint256).max);
         }
 
-        __snagFee_init(
-            cfg.priceFeed,
-            cfg.maxPriceAge,
-            cfg.protocolTreasury,
-            cfg.protocolOverflow,
-            cfg.partnerOverflow,
-            cfg.feeClaimUsdCents,
-            cfg.feeStakeUsdCents,
-            cfg.feeCapUsdCents,
-            cfg.overflowMode,
-            cfg.protocolTokenShareBips
-        );
+        __snagFee_init(cfg);
 
         emit AirdropInitialized(
             _admin,

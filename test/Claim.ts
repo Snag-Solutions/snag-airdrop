@@ -956,11 +956,46 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
       expect(after2 - before2).to.equal(feeWei);
     });
   
-  it("partner can update partnerOverflow address", async () => {
+    it("partner can update partnerOverflow address", async () => {
       const { claimAsAdmin, overflowPartner, partnerAdmin } = await loadFixture(deployFixture);
       await claimAsAdmin.write.updatePartnerOverflow([partnerAdmin.account.address]); // set to a new one
       // Not much to assert besides event — but if no revert, function is callable by onlyAdmin
       await claimAsAdmin.write.updatePartnerOverflow([overflowPartner.account.address]); // set back
+    });
+
+    it("no bonus when amountStaked = 0 even if lockup >= threshold", async () => {
+      const { claim, erc20, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
+
+      const entries = Array.from(tree.entries()) as Array<[number, [`0x${string}`, bigint]]>;
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+
+      // 100% claim, 0% stake but set a high lockup to meet multiplier threshold
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes('no-bonus-when-no-stake')),
+        multiplier,
+        percentageToClaim: 10_000,
+        percentageToStake: 0,
+        lockupPeriod: 120, // >= minLockupDurationForMultiplier in fixture
+      };
+      const feeWei = await claim.read.validateClaimOptions([opts]);
+      const nonce = keccak256(toBytes('nonce-no-bonus'));
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts, nonce);
+
+      // Before
+      const bonusBefore = await claim.read.totalBonusTokens();
+      const userBalBefore = await erc20.read.balanceOf([user.account.address]);
+
+      const asUser = await hre.viem.getContractAt('SnagAirdropV2Claim', claim.address, { client: { wallet: user } });
+      await asUser.write.claimFor([user.account.address, proof, allocation, opts, nonce, sig], { value: feeWei });
+
+      // After: no bonus should be minted/allocated when stake is zero
+      const bonusAfter = await claim.read.totalBonusTokens();
+      expect(bonusAfter - bonusBefore).to.equal(0n);
+
+      // User receives full allocation
+      const userBalAfter = await erc20.read.balanceOf([user.account.address]);
+      expect(userBalAfter - userBalBefore).to.equal(allocation);
     });
 
     it("nonce: cancelNonce blocks a signed claim; different nonce works", async () => {

@@ -261,7 +261,7 @@ contract SnagAirdropV2Claim is
         totalStaked  += amountStaked;
 
         uint256 bonus = 0;
-        if (multiplier > 0 && o.lockupPeriod >= minLockupDurationForMultiplier) {
+        if (multiplier > 0 && amountStaked > 0 && o.lockupPeriod >= minLockupDurationForMultiplier) {
             bonus = (amountStaked * multiplier) / 10_000;
             if (bonus > maxBonus) bonus = maxBonus;
             totalBonusTokens += bonus;

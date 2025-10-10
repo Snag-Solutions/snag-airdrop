@@ -19,6 +19,7 @@ error RoleNotGranted();
 /// ---------------- Price / Fees ----------------
 error BadPrice();
 error StalePrice();
+error InvalidFeedDecimals();
 error InsufficientDeploymentFee();
 error InsufficientFee();
 error FeeTransferFailed();

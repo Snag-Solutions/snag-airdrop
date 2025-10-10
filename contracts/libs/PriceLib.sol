@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {AggregatorV3Interface} from "../vendor/AggregatorV3Interface.sol";
-import {BadPrice, StalePrice} from "../errors/Errors.sol";
+import {BadPrice, StalePrice, InvalidFeedDecimals} from "../errors/Errors.sol";
 
 /// @title PriceLib
 /// @notice Chainlink native/USD conversion helpers with staleness checks.
@@ -39,6 +39,8 @@ library PriceLib {
     {
         if (usdCents == 0) return 0;
         (int256 price, uint8 dec) = fetchPrice(feed, maxAge);
+        // Prevent unsafe exponentiation for extreme feed decimals
+        if (dec > 18) revert InvalidFeedDecimals();
         uint256 num = (uint256(usdCents) * (10 ** (18 + dec))) / 100;
         uint256 den = uint256(uint256(price));
         weiAmt = (num + den - 1) / den; // ceil division

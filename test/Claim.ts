@@ -205,7 +205,7 @@ import {
   /*                                    Tests                                   */
   /* -------------------------------------------------------------------------- */
   
-describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRoles)", () => {
+  describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRoles)", () => {
     it("initializes via factory and starts paused until admin unpauses", async () => {
       const { claim, claimAsAdmin } = await loadFixture(deployFixture);
       // already unpaused by fixture final step; pause then unpause again to assert admin control
@@ -254,6 +254,48 @@ describe("Claim: initialization, claiming, staking, fees (with MockFactoryWithRo
   
       const zeroId: ClaimOptions = { ...claimOpts, optionId: `0x${"00".repeat(32)}` as `0x${string}` };
       await expect(claim.read.validateClaimOptions([zeroId])).to.be.rejectedWith("InvalidOptionId");
+    });
+
+    it("claimFor reverts when percentage sum < 100% (PctSumNot100)", async () => {
+      const { claim, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
+      const entries = Array.from(tree.entries());
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("bad-sum-low")),
+        multiplier,
+        percentageToClaim: 3000, // 30%
+        percentageToStake: 2000, // 20% -> total 50% < 100%
+        lockupPeriod: 0,
+      };
+      const nonce = keccak256(toBytes("nonce-bad-sum-low"));
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts, nonce);
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await expect(
+        asUser.write.claimFor([user.account.address, proof, allocation, opts, nonce, sig])
+      ).to.be.rejectedWith("PctSumNot100");
+    });
+
+    it("claimFor reverts when percentage sum > 100% (PctSumExceeded)", async () => {
+      const { claim, user, tree, allocation, multiplier } = await loadFixture(deployFixture);
+      const entries = Array.from(tree.entries());
+      const me = entries.find(([, v]) => v[0] === user.account.address)!;
+      const proof = tree.getProof(me[1]) as `0x${string}`[];
+
+      const opts: ClaimOptions = {
+        optionId: keccak256(toBytes("bad-sum-high")),
+        multiplier,
+        percentageToClaim: 6000, // 60%
+        percentageToStake: 5000, // 50% -> total 110% > 100%
+        lockupPeriod: 120,
+      };
+      const nonce = keccak256(toBytes("nonce-bad-sum-high"));
+      const sig = await makeClaimSignature(user, claim.address, user.account.address, allocation, opts, nonce);
+      const asUser = await hre.viem.getContractAt("SnagAirdropV2Claim", claim.address, { client: { wallet: user } });
+      await expect(
+        asUser.write.claimFor([user.account.address, proof, allocation, opts, nonce, sig])
+      ).to.be.rejectedWith("PctSumExceeded");
     });
   
     it("claims (claim-only) transfers tokens; ETH fee to treasury; protocol token-share accrues for later withdrawal", async () => {

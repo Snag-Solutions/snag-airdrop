@@ -39,7 +39,11 @@ async function getStakingData(
 }
 
 async function claimUnlocked(stakeAsUser: any, stakeId?: bigint): Promise<`0x${string}`> {
-  return stakeAsUser.write.claimUnlocked([stakeId ?? 0n]);
+  if (stakeId !== undefined && stakeId !== 0n) {
+    return stakeAsUser.write.claimUnlockedIds([[stakeId]]);
+  }
+  // Fallback to paginated claim when no specific ID is provided
+  return stakeAsUser.write.claimUnlockedFrom([0n, 1000n]);
 }
 
 async function claimUnlockedAndGetAmount(
@@ -49,7 +53,7 @@ async function claimUnlockedAndGetAmount(
   stakeId?: bigint
 ): Promise<bigint> {
   const before = await erc20.read.balanceOf([userAddr]) as bigint;
-  await stakeAsUser.write.claimUnlocked([stakeId ?? 0n]);
+  await claimUnlocked(stakeAsUser, stakeId);
   const after = await erc20.read.balanceOf([userAddr]) as bigint;
   return after - before;
 }

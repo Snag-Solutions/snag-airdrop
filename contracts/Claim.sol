@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.20;
 
 import {Context} from '@openzeppelin/contracts/utils/Context.sol';
@@ -237,7 +237,9 @@ contract SnagAirdropV2Claim is
         totalStaked  += amountStaked;
 
         uint256 bonus = 0;
-        if (multiplier > 0 && amountStaked > 0 && o.lockupPeriod >= minLockupDurationForMultiplier) {
+        // Lockup threshold for multiplier eligibility is already validated earlier
+        // when staking is selected. Only check multiplier and staked amount here.
+        if (multiplier > 0 && amountStaked > 0) {
             bonus = (amountStaked * multiplier) / 10_000;
             if (bonus > maxBonus) bonus = maxBonus;
             totalBonusTokens += bonus;

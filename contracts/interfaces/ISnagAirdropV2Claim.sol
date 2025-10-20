@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.20;
 
 import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
@@ -128,10 +128,15 @@ interface ISnagAirdropV2Claim {
      *
      * Requirements:
      * - Contract must be active and not paused.
-     * - Sum of percentages ≤ 100%.
+     * - Sum of percentages = 100% (10_000 bips). Partial claims that leave unconsumed allocation are not allowed.
      * - If staking selected: staking address must be set and lockup ≥ minimums.
      * - Signature must be from the beneficiary and optionId must be non-zero.
      * - Merkle proof must validate against the current root.
+     *
+     * Bonus calculation semantics:
+     * - Bonus applies only when `multiplier > 0` and `amountStaked > 0`.
+     * - Lockup eligibility for multiplier (lockupPeriod ≥ minLockupDurationForMultiplier) is enforced during
+     *   option validation; implementations do not re-check it during the bonus calculation.
      */
     function claimFor(
         address beneficiary,

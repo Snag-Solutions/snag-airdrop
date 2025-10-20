@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.20;
 
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -56,19 +56,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
         emit Staked(staker, id, amount, duration);
     }
 
-    /// @inheritdoc ILinearStake
-    function claimUnlocked(uint256 stakeId) external override returns (uint256 totalClaimed) {
-        EnumerableSet.UintSet storage set_ = _stakeIds[_msgSender()];
-        if (stakeId != 0) {
-            if (!set_.contains(stakeId)) revert StakeDoesNotExist();
-            totalClaimed = _claimUnlockedSingle(_msgSender(), stakeId);
-        } else {
-            uint256 len = set_.length();
-            for (uint256 i = 0; i < len; i++) {
-                totalClaimed += _claimUnlockedSingle(_msgSender(), set_.at(i));
-            }
-        }
-    }
+    // Removed: claimUnlocked(stakeId). Use claimUnlockedIds or claimUnlockedFrom instead.
 
     /// @inheritdoc ILinearStake
     function claimUnlockedFrom(uint256 startAfterId, uint256 maxStakes)
@@ -100,6 +88,17 @@ contract LinearStake is Context, ERC165, ILinearStake {
 
         if (lastProcessedId != 0) {
             emit BatchClaimed(_msgSender(), totalClaimed, lastProcessedId);
+        }
+    }
+
+    /// @inheritdoc ILinearStake
+    function claimUnlockedIds(uint256[] calldata ids) external override returns (uint256 totalClaimed) {
+        EnumerableSet.UintSet storage set_ = _stakeIds[_msgSender()];
+        uint256 l = ids.length;
+        for (uint256 i = 0; i < l; i++) {
+            uint256 id = ids[i];
+            if (!set_.contains(id)) revert StakeDoesNotExist();
+            totalClaimed += _claimUnlockedSingle(_msgSender(), id);
         }
     }
 
@@ -138,7 +137,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
         if (to == 0) return 0;
         s.claimed += to;
         token.safeTransfer(acct, to);
-        emit Claimed(acct, to);
+        emit Claimed(acct, id, to);
         return to;
     }
 

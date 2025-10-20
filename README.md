@@ -67,7 +67,7 @@ Users submit an EIP‑712 signed `ClaimOptions` along with a Merkle proof and al
 - ClaimOptions
   - `optionId`: unique (non‑zero) option identifier; binds the signature.
   - `multiplier`: bonus multiplier (bips) expected by the signer; must match the on‑chain value at claim time (prevents signing against stale UI values).
-  - `percentageToClaim`, `percentageToStake`: bips that sum to at most 10_000.
+  - `percentageToClaim`, `percentageToStake`: bips that must sum to exactly 10_000 (100%). Partial claims that leave unconsumed allocation are not allowed.
   - `lockupPeriod`: seconds; must satisfy `minLockupDuration` (for any stake) and `minLockupDurationForMultiplier` (for bonus eligibility).
 
 - Effects
@@ -90,7 +90,7 @@ Some users can accumulate many stakes over time. Both staking contracts expose a
   - `claimUnlockedFrom(startAfterId, maxStakes)` claims unlocked (vested) amounts from a batch of stakes.
   - Use `startAfterId = 0` to start from the first stake; the function returns `lastProcessedId` which you can pass into the next call to continue.
   - Emits `BatchClaimed(user, totalClaimed, lastProcessedId)`.
-  - Also supports `claimUnlocked(stakeId)` for a single stake (or `stakeId = 0` to scan all).
+  - `claimUnlockedIds(ids[])` claims from an explicit list of stake IDs owned by the caller. For large sets, prefer pagination.
 
 - Timelock (cliff) vesting (`TimelockStake`)
   - `claimFrom(startAfterId, maxStakes)` claims only stakes that have fully matured (unmatured stakes in the window are skipped without reverting).

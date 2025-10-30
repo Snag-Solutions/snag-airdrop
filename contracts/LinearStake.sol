@@ -168,6 +168,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
     {
         return
             interfaceId == type(ILinearStake).interfaceId ||
+            interfaceId == type(IBaseStake).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 }

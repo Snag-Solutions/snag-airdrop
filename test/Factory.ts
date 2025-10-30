@@ -551,4 +551,94 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       ]),
     ).to.be.rejectedWith('InvalidStakingContract')
   })
+
+  it('passes with actual LinearStake IBaseStake staking contract', async function () {
+    const { factory, protocolSigner, expectedDeployer, feed, erc20, chainId } =
+      await loadFixture(deployFixture)
+
+    const linearStake = await hre.viem.deployContract('LinearStake', [
+      erc20.address,
+    ])
+    // Try using actual staking contract address as staking (support IBaseStake)
+    const message = buildCreatePayload({
+      factory: getAddress(factory.address),
+      expectedDeployer: getAddress(expectedDeployer.account.address),
+      token: getAddress(erc20.address),
+      priceFeed: getAddress(feed.address),
+      protocolTreasury: getAddress(expectedDeployer.account.address),
+      protocolOverflow: getAddress(expectedDeployer.account.address),
+      partnerOverflow: getAddress(expectedDeployer.account.address),
+      staking: getAddress(linearStake.address),
+    })
+
+    const sig = await protocolSigner.signTypedData({
+      account: protocolSigner.account,
+      domain: eip712Domain(getAddress(factory.address), chainId),
+      types: CreateTypes,
+      primaryType: 'CreateAirdrop',
+      message,
+    })
+
+    const asDeployer = await hre.viem.getContractAt(
+      'SnagAirdropV2Factory',
+      factory.address,
+      { client: { wallet: expectedDeployer } }
+    )
+
+    await expect(
+      asDeployer.write.createAirdropSigned([
+        toCreateParams(message),
+        toFeeConfig(message),
+        message.deploymentFeeUsdCents,
+        message.expectedDeployer,
+        message.deadline,
+        sig,
+      ])
+    ).to.not.be.rejectedWith('InvalidStakingContract')
+  })
+
+  it('passes with actual TimelockStake IBaseStake staking contract', async function () {
+    const { factory, protocolSigner, expectedDeployer, feed, erc20, chainId } =
+      await loadFixture(deployFixture)
+
+    const timelockStake = await hre.viem.deployContract('TimelockStake', [
+      erc20.address,
+    ])
+    // Try using actual staking contract address as staking (support IBaseStake)
+    const message = buildCreatePayload({
+      factory: getAddress(factory.address),
+      expectedDeployer: getAddress(expectedDeployer.account.address),
+      token: getAddress(erc20.address),
+      priceFeed: getAddress(feed.address),
+      protocolTreasury: getAddress(expectedDeployer.account.address),
+      protocolOverflow: getAddress(expectedDeployer.account.address),
+      partnerOverflow: getAddress(expectedDeployer.account.address),
+      staking: getAddress(timelockStake.address),
+    })
+
+    const sig = await protocolSigner.signTypedData({
+      account: protocolSigner.account,
+      domain: eip712Domain(getAddress(factory.address), chainId),
+      types: CreateTypes,
+      primaryType: 'CreateAirdrop',
+      message,
+    })
+
+    const asDeployer = await hre.viem.getContractAt(
+      'SnagAirdropV2Factory',
+      factory.address,
+      { client: { wallet: expectedDeployer } }
+    )
+
+    await expect(
+      asDeployer.write.createAirdropSigned([
+        toCreateParams(message),
+        toFeeConfig(message),
+        message.deploymentFeeUsdCents,
+        message.expectedDeployer,
+        message.deadline,
+        sig,
+      ])
+    ).to.not.be.rejectedWith('InvalidStakingContract')
+  })
 })

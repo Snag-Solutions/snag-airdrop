@@ -545,8 +545,6 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
           0n,
           user.account.address
         ]);
-
-        console.log(stakeInfos);
   
         expect(stakeInfos.length).to.equal(1);
         expect(stakeInfos.length).to.equal(1);

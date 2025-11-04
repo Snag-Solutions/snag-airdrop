@@ -19,15 +19,31 @@ contract MockStake is ERC165, IBaseStake {
     /// @inheritdoc IBaseStake
     function claimable(uint256 /* stakeId */, address /* account */)
         external
-        pure
+        view
         override
-        returns (uint256[] memory stakeIds, uint256[] memory amounts)
+        returns (IBaseStake.StakeInfo[] memory stakeInfos)
     {
         // Return sample data
-        stakeIds = new uint256[](1);
-        amounts = new uint256[](1);
-        stakeIds[0] = 1;
-        amounts[0] = 1000;
+        stakeInfos = new IBaseStake.StakeInfo[](1);
+        stakeInfos[0] = IBaseStake.StakeInfo({
+            stakeId: 1,
+            amount: 1000,
+            duration: 86400, // 1 day
+            startTime: block.timestamp,
+            claimed: 0,
+            claimable: 1000 // Sample claimable amount
+        });
+    }
+
+    /// @inheritdoc IBaseStake
+    function claimFrom(uint256 /* startAfterId */, uint256 /* maxStakes */)
+        external
+        pure
+        override
+        returns (uint256 totalClaimed, uint256 lastProcessedId)
+    {
+        // Return sample data
+        return (0, 0);
     }
 
     /// @inheritdoc ERC165

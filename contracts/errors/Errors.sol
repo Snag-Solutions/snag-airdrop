@@ -33,6 +33,7 @@ error InvalidProof();
 error PctSumExceeded();
 error PctSumNot100();
 error NoStaking();
+error StakePercentageTooLow();
 error LockupTooShort();
 error InvalidOptionId();
 error InvalidMultiplier();

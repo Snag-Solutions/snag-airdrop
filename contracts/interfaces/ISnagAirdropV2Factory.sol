@@ -32,6 +32,8 @@ interface ISnagAirdropV2Factory {
         uint32  minLockupForMultiplier;
         /// @notice Bonus multiplier in bips (0..10_000).
         uint256 multiplier;
+        /// @notice Minimum percentage (bips) that must be staked (0 = no constraint).
+        uint16  minPercentageToStake;
     }
 
     /// @notice Protocol fee configuration per airdrop (immutable post-deploy).

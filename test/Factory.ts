@@ -102,6 +102,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       { name: 'protocolTokenShareBips', type: 'uint16' },
 
       { name: 'deploymentFeeUsdCents', type: 'uint64' },
+      { name: 'minPercentageToStake', type: 'uint16' },
     ] as const,
   }
 
@@ -127,6 +128,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
     overflowMode?: OverflowMode
     protocolTokenShareBips?: number
     deploymentFeeUsdCents?: number | bigint
+    minPercentageToStake?: number
     deadline?: number
   }) {
     const now = Math.floor(Date.now() / 1000)
@@ -161,6 +163,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       overflowMode: args.overflowMode ?? OverflowMode.Cancel,
       protocolTokenShareBips: args.protocolTokenShareBips ?? 100,
       deploymentFeeUsdCents: BigInt(args.deploymentFeeUsdCents ?? 0),
+      minPercentageToStake: args.minPercentageToStake ?? 0,
     }
   }
 
@@ -175,6 +178,7 @@ describe('Factory: signed deployment, roles, fees (mocks)', function () {
       minLockup: m.minLockup,
       minLockupForMultiplier: m.minLockupForMultiplier,
       multiplier: m.multiplier,
+      minPercentageToStake: m.minPercentageToStake ?? 0,
     }
   }
   function toFeeConfig(m: any) {

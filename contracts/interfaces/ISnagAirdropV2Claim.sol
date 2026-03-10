@@ -67,6 +67,7 @@ interface ISnagAirdropV2Claim {
         uint32  minLockupDuration,
         uint32  minLockupDurationForMultiplier,
         uint256 multiplier,
+        uint16  minPercentageToStake,
         address priceFeed,
         uint32  maxPriceAge,
         address protocolTreasury,
@@ -100,6 +101,8 @@ interface ISnagAirdropV2Claim {
     function minLockupDuration() external view returns (uint32);
     /// @notice Lockup required to qualify for multiplier-based bonus.
     function minLockupDurationForMultiplier() external view returns (uint32);
+    /// @notice Minimum percentage (bips) that must be staked per claim (0 = no constraint).
+    function minPercentageToStake() external view returns (uint16);
     /// @notice True while airdrop is active and claims are allowed.
     function isActive() external view returns (bool);
     /// @notice Amount already consumed by a user (claim + stake) out of their allocation.

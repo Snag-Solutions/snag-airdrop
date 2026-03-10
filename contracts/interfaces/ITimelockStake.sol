@@ -14,17 +14,6 @@ interface ITimelockStake is IBaseStake {
     function claim(uint256 stakeId) external returns (uint256 totalClaimed);
 
     /**
-     * @notice Claim matured stakes in batches, starting after a cursor.
-     * @param startAfterId Stake ID cursor. Use 0 to start from the beginning. If non-zero, must be owned by caller.
-     * @param maxStakes Maximum number of stakes to attempt to claim in this call.
-     * @return totalClaimed Total amount claimed in this batch.
-     * @return lastProcessedId The last stake ID processed (use as cursor for next batch).
-     */
-    function claimFrom(uint256 startAfterId, uint256 maxStakes)
-        external
-        returns (uint256 totalClaimed, uint256 lastProcessedId);
-
-    /**
      * @notice Get all stake IDs owned by a specific account.
      * @param account The address to query.
      * @return stakeIds Array of stake IDs.

@@ -6,6 +6,21 @@ pragma solidity 0.8.20;
 /// that integrates with the SnagAirdrop system. Custom staking contracts must implement
 /// these functions to ensure compatibility with the airdrop claim process.
 interface IBaseStake {
+    /// @notice Stake information structure
+    /// @param stakeId The unique identifier for the stake
+    /// @param amount Total amount staked
+    /// @param duration Lockup duration in seconds
+    /// @param startTime When the stake was created (unix timestamp)
+    /// @param claimed Amount already claimed (for linear stakes) or amount if fully claimed (for timelock stakes)
+    /// @param claimable Amount that can currently be claimed
+    struct StakeInfo {
+        uint256 stakeId;
+        uint256 amount;
+        uint32 duration;
+        uint256 startTime;
+        uint256 claimed;
+        uint256 claimable;
+    }
     /**
      * @notice Stake tokens on behalf of a user with a specified lockup period.
      * @param staker The address of the user who will own the stake
@@ -32,37 +47,71 @@ interface IBaseStake {
     function stakeFor(address staker, uint256 amount, uint32 duration) external;
 
     /**
+     * @notice Claim tokens from stakes in batches, starting after a cursor.
+     * @param startAfterId Stake ID cursor. Use 0 to start from the beginning. If non-zero, must be owned by caller.
+     * @param maxStakes Maximum number of stakes to process in this call.
+     * @return totalClaimed Total amount of tokens transferred to the caller in this batch.
+     * @return lastProcessedId The last stake ID processed (use as cursor for next batch).
+     * @dev This function allows users to claim tokens from their stakes in a paginated manner.
+     * 
+     * For linear stakes: claims unlocked/vested portions that haven't been claimed yet.
+     * For timelock stakes: claims the full amount if the stake has matured.
+     * 
+     * The function processes stakes starting after the cursor position, up to maxStakes.
+     * This allows for pagination when a user has many stakes.
+     * 
+     * Example usage:
+     * ```solidity
+     * // Claim from first batch of stakes
+     * (uint256 totalClaimed, uint256 lastProcessedId) = 
+     *     stakingContract.claimFrom(0, 10);
+     * 
+     * // Continue claiming from next batch
+     * (uint256 totalClaimed2, uint256 lastProcessedId2) = 
+     *     stakingContract.claimFrom(lastProcessedId, 10);
+     * ```
+     */
+    function claimFrom(uint256 startAfterId, uint256 maxStakes)
+        external
+        returns (uint256 totalClaimed, uint256 lastProcessedId);
+
+    /**
      * @notice Get claimable amounts for a specific user and optionally a specific stake.
      * @param stakeId Specific stake ID to query, or 0 to query all stakes
      * @param account The address of the user to query
-     * @return stakeIds Array of stake IDs that have claimable amounts
-     * @return amounts Array of claimable amounts corresponding to each stake ID
+     * @return stakeInfos Array of StakeInfo structs containing stake details
      * @dev This function returns information about tokens that can be claimed by a user.
      * 
      * If stakeId is 0, returns data for all stakes owned by the account.
      * If stakeId is non-zero, returns data only for that specific stake.
      * 
-     * The returned arrays are parallel - stakeIds[i] corresponds to amounts[i].
+     * Each StakeInfo struct contains:
+     * - stakeId: The unique identifier for the stake
+     * - amount: Total amount staked
+     * - duration: Lockup duration in seconds
+     * - startTime: When the stake was created (unix timestamp)
+     * - claimed: Amount already claimed (for linear stakes) or amount if fully claimed (for timelock stakes)
+     * - claimable: Amount that can currently be claimed
      * 
      * Example usage:
      * ```solidity
-     * // Get all claimable amounts for a user
-     * (uint256[] memory ids, uint256[] memory amounts) = 
+     * // Get all stake information for a user
+     * IBaseStake.StakeInfo[] memory stakeInfos = 
      *     stakingContract.claimable(0, userAddress);
      * 
-     * // Get claimable amount for specific stake
-     * (uint256[] memory ids, uint256[] memory amounts) = 
+     * // Get specific stake information
+     * IBaseStake.StakeInfo[] memory stakeInfos = 
      *     stakingContract.claimable(stakeId, userAddress);
      * 
-     * // Calculate total claimable
+     * // Calculate total claimable (now directly available in struct)
      * uint256 totalClaimable = 0;
-     * for (uint i = 0; i < amounts.length; i++) {
-     *     totalClaimable += amounts[i];
+     * for (uint i = 0; i < stakeInfos.length; i++) {
+     *     totalClaimable += stakeInfos[i].claimable;
      * }
      * ```
      */
     function claimable(uint256 stakeId, address account)
         external
         view
-        returns (uint256[] memory stakeIds, uint256[] memory amounts);
+        returns (StakeInfo[] memory stakeInfos);
 }

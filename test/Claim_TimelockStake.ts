@@ -409,8 +409,8 @@ describe("Claim + TimelockStake integration", function () {
 
     // Before maturity of second, only first is claimable after 60s
     await time.increase(60);
-    const [idsA, amtsA] = await timelock.read.claimable([0n, user.account.address]);
-    const totalA = amtsA.reduce((a: bigint, b: bigint) => a + b, 0n);
+    const stakeInfosA = await timelock.read.claimable([0n, user.account.address]);
+    const totalA = stakeInfosA.reduce((a, b) => a + b.claimable, 0n);
     expect(totalA).to.equal(allocation); // first stake matured (100% of allocation); second still locked
 
     // claim(0) pulls only matured stake

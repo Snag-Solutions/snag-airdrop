@@ -30,15 +30,15 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
     IERC20 public immutable token;
 
     /// @dev Per-stake data packed sensibly for gas.
-    struct StakeInfo {
+    struct StakeData {
         uint256 amount;       // total locked
         uint32  duration;     // seconds
         uint256  startTime;    // unix seconds
         bool    claimed;      // claimed once at maturity
     }
 
-    // account => (stakeId => StakeInfo)
-    mapping(address => mapping(uint256 => StakeInfo)) private _stakes;
+    // account => (stakeId => StakeData)
+    mapping(address => mapping(uint256 => StakeData)) private _stakes;
     // account => next id (monotonic)
     mapping(address => uint256) private _stakeCounter;
     // account => set of ids
@@ -59,7 +59,7 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
         token.safeTransferFrom(_msgSender(), address(this), amount);
 
         uint256 newId = ++_stakeCounter[staker];
-        _stakes[staker][newId] = StakeInfo({
+        _stakes[staker][newId] = StakeData({
             amount:   amount,
             duration: duration,
             startTime: block.timestamp,
@@ -89,15 +89,16 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
 
         // If nothing was claimable in a specific-claim call, revert with a helpful error.
         if (stakeId != 0 && totalClaimed == 0) {
-            StakeInfo memory s = _stakes[_msgSender()][stakeId];
+            StakeData memory s = _stakes[_msgSender()][stakeId];
             if (s.claimed) revert StakeAlreadyClaimed();
             revert StakeNotMatured();
         }
     }
 
-    /// @inheritdoc ITimelockStake
+    /// @inheritdoc IBaseStake
     function claimFrom(uint256 startAfterId, uint256 maxStakes)
         external
+        override
         nonReentrant
         returns (uint256 totalClaimed, uint256 lastProcessedId)
     {
@@ -136,23 +137,37 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
         external
         view
         override
-        returns (uint256[] memory ids, uint256[] memory amts)
+        returns (IBaseStake.StakeInfo[] memory stakeInfos)
     {
         EnumerableSet.UintSet storage set_ = _stakeIds[account];
 
         if (stakeId != 0) {
-            ids = new uint256[](1);
-            amts = new uint256[](1);
-            ids[0] = stakeId;
-            amts[0] = _claimableSingle(account, stakeId);
+            stakeInfos = new IBaseStake.StakeInfo[](1);
+            StakeData storage s = _stakes[account][stakeId];
+            uint256 claimableAmt = _claimableSingle(account, stakeId);
+            stakeInfos[0] = IBaseStake.StakeInfo({
+                stakeId: stakeId,
+                amount: s.amount,
+                duration: s.duration,
+                startTime: s.startTime,
+                claimed: s.claimed ? s.amount : 0,
+                claimable: claimableAmt
+            });
         } else {
             uint256 len = set_.length();
-            ids = new uint256[](len);
-            amts = new uint256[](len);
+            stakeInfos = new IBaseStake.StakeInfo[](len);
             for (uint256 i = 0; i < len; i++) {
                 uint256 id = set_.at(i);
-                ids[i]  = id;
-                amts[i] = _claimableSingle(account, id);
+                StakeData storage s = _stakes[account][id];
+                uint256 claimableAmt = _claimableSingle(account, id);
+                stakeInfos[i] = IBaseStake.StakeInfo({
+                    stakeId: id,
+                    amount: s.amount,
+                    duration: s.duration,
+                    startTime: s.startTime,
+                    claimed: s.claimed ? s.amount : 0,
+                    claimable: claimableAmt
+                });
             }
         }
     }
@@ -165,7 +180,7 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
     // ───────────── Internal helpers ────────────────────────────────
 
     function _claimSingle(address acct, uint256 id) private returns (uint256) {
-        StakeInfo storage s = _stakes[acct][id];
+        StakeData storage s = _stakes[acct][id];
 
         if (s.amount == 0) revert StakeDoesNotExist();
         if (s.claimed)     revert StakeAlreadyClaimed();
@@ -183,7 +198,7 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
     }
 
     function _claimSingleIfMature(address acct, uint256 id) private returns (uint256) {
-        StakeInfo storage s = _stakes[acct][id];
+        StakeData storage s = _stakes[acct][id];
         if (s.amount == 0 || s.claimed) return 0;
         if (block.timestamp < uint256(s.startTime) + uint256(s.duration)) return 0;
 
@@ -195,7 +210,7 @@ contract TimelockStake is Context, ERC165, ReentrancyGuard, ITimelockStake {
     }
 
     function _claimableSingle(address acct, uint256 id) private view returns (uint256) {
-        StakeInfo storage s = _stakes[acct][id];
+        StakeData storage s = _stakes[acct][id];
         if (s.amount == 0 || s.claimed) return 0;
         if (block.timestamp >= uint256(s.startTime) + uint256(s.duration)) {
             return uint256(s.amount);

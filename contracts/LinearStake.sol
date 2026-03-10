@@ -26,14 +26,14 @@ contract LinearStake is Context, ERC165, ILinearStake {
     IERC20 public immutable token;
 
     /// @dev Stake information structure
-    struct StakeInfo { 
+    struct StakeData { 
         uint256 amount;      /// Total amount staked
         uint32 duration;     /// Lockup duration in seconds
         uint256 startTime;   /// When the stake was created
         uint256 claimed;     /// Amount already claimed
     }
     
-    mapping(address => mapping(uint256 => StakeInfo)) private _stakes;
+    mapping(address => mapping(uint256 => StakeData)) private _stakes;
     mapping(address => uint256)                  private _stakeCounter;
     mapping(address => EnumerableSet.UintSet)    private _stakeIds;
 
@@ -51,16 +51,17 @@ contract LinearStake is Context, ERC165, ILinearStake {
 
         _stakeCounter[staker] += 1;
         uint256 id = _stakeCounter[staker];
-        _stakes[staker][id] = StakeInfo(amount, duration, block.timestamp, 0);
+        _stakes[staker][id] = StakeData(amount, duration, block.timestamp, 0);
         _stakeIds[staker].add(id);
         emit Staked(staker, id, amount, duration);
     }
 
-    // Removed: claimUnlocked(stakeId). Use claimUnlockedIds or claimUnlockedFrom instead.
+    // Removed: claimUnlocked(stakeId). Use claimUnlockedIds or claimFrom instead.
 
-    /// @inheritdoc ILinearStake
-    function claimUnlockedFrom(uint256 startAfterId, uint256 maxStakes)
+    /// @inheritdoc IBaseStake
+    function claimFrom(uint256 startAfterId, uint256 maxStakes)
         external
+        override
         returns (uint256 totalClaimed, uint256 lastProcessedId)
     {
         EnumerableSet.UintSet storage set_ = _stakeIds[_msgSender()];
@@ -107,22 +108,36 @@ contract LinearStake is Context, ERC165, ILinearStake {
         external
         view
         override
-        returns (uint256[] memory ids, uint256[] memory amts)
+        returns (IBaseStake.StakeInfo[] memory stakeInfos)
     {
         EnumerableSet.UintSet storage set_ = _stakeIds[account];
         if (stakeId != 0) {
-            ids  = new uint256[](1);
-            amts = new uint256[](1);
-            ids[0]  = stakeId;
-            amts[0] = _claimableSingle(account, stakeId);
+            stakeInfos = new IBaseStake.StakeInfo[](1);
+            StakeData storage s = _stakes[account][stakeId];
+            uint256 claimableAmt = _claimableSingle(account, stakeId);
+            stakeInfos[0] = IBaseStake.StakeInfo({
+                stakeId: stakeId,
+                amount: s.amount,
+                duration: s.duration,
+                startTime: s.startTime,
+                claimed: s.claimed,
+                claimable: claimableAmt
+            });
         } else {
             uint256 len = set_.length();
-            ids  = new uint256[](len);
-            amts = new uint256[](len);
+            stakeInfos = new IBaseStake.StakeInfo[](len);
             for (uint256 i = 0; i < len; i++) {
                 uint256 id_ = set_.at(i);
-                ids[i]      = id_;
-                amts[i]     = _claimableSingle(account, id_);
+                StakeData storage s = _stakes[account][id_];
+                uint256 claimableAmt = _claimableSingle(account, id_);
+                stakeInfos[i] = IBaseStake.StakeInfo({
+                    stakeId: id_,
+                    amount: s.amount,
+                    duration: s.duration,
+                    startTime: s.startTime,
+                    claimed: s.claimed,
+                    claimable: claimableAmt
+                });
             }
         }
     }
@@ -132,7 +147,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
     /// @param id The stake ID
     /// @return The amount claimed
     function _claimUnlockedSingle(address acct, uint256 id) private returns (uint256) {
-        StakeInfo storage s = _stakes[acct][id];
+        StakeData storage s = _stakes[acct][id];
         uint256 to = _claimableSingle(acct, id);
         if (to == 0) return 0;
         s.claimed += to;
@@ -146,7 +161,7 @@ contract LinearStake is Context, ERC165, ILinearStake {
     /// @param id The stake ID
     /// @return The claimable amount
     function _claimableSingle(address acct, uint256 id) private view returns (uint256) {
-        StakeInfo storage s = _stakes[acct][id];
+        StakeData storage s = _stakes[acct][id];
         if (s.amount == 0 || block.timestamp <= s.startTime) return 0;
         uint256 elapsed = block.timestamp - s.startTime;
         uint256 vested  = elapsed >= s.duration ? s.amount : (s.amount * elapsed) / s.duration;

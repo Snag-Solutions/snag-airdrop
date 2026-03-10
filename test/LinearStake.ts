@@ -33,9 +33,9 @@ async function getStakingData(
   account: `0x${string}`,
   stakeId?: bigint
 ): Promise<{ stakeIds: bigint[]; claimableAmounts: bigint[]; totalClaimable: bigint }> {
-  const [ids, amts] = await stake.read.claimable([stakeId ?? 0n, account]);
-  const total = amts.reduce((acc: bigint, x: bigint) => acc + x, 0n);
-  return { stakeIds: ids, claimableAmounts: amts, totalClaimable: total };
+  const stakeInfos = await stake.read.claimable([stakeId ?? 0n, account]);
+  const total = stakeInfos.reduce((acc: bigint, x: { claimable: bigint }) => acc + x.claimable, 0n);
+  return { stakeIds: stakeInfos.map((s: { stakeId: bigint }) => s.stakeId), claimableAmounts: stakeInfos.map((s: { claimable: bigint }) => s.claimable), totalClaimable: total };
 }
 
 async function claimUnlocked(stakeAsUser: any, stakeId?: bigint): Promise<`0x${string}`> {
@@ -43,7 +43,7 @@ async function claimUnlocked(stakeAsUser: any, stakeId?: bigint): Promise<`0x${s
     return stakeAsUser.write.claimUnlockedIds([[stakeId]]);
   }
   // Fallback to paginated claim when no specific ID is provided
-  return stakeAsUser.write.claimUnlockedFrom([0n, 1000n]);
+  return stakeAsUser.write.claimFrom([0n, 1000n]);
 }
 
 async function claimUnlockedAndGetAmount(
@@ -341,7 +341,7 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
     });
   
     describe("Pagination", function () {
-      it("claims in batches using claimUnlockedFrom", async function () {
+      it("claims in batches using claimFrom", async function () {
         const { user, stake, stakeAsUser, erc20 } = await loadFixture(deployStakeFixture);
 
         // Create three stakes with different amounts
@@ -357,12 +357,12 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
 
         const ids = await getStakeIds(stake, user.account.address);
         const balBefore = await erc20.read.balanceOf([user.account.address]);
-        await stakeAsUser.write.claimUnlockedFrom([0n, 2n]);
+        await stakeAsUser.write.claimFrom([0n, 2n]);
         const balMid = await erc20.read.balanceOf([user.account.address]);
         expect(balMid - balBefore).to.equal(a1 + a2);
 
         // Continue from the last processed id (ids[1])
-        await stakeAsUser.write.claimUnlockedFrom([ids[1], 10n]);
+        await stakeAsUser.write.claimFrom([ids[1], 10n]);
         const balAfter = await erc20.read.balanceOf([user.account.address]);
         expect(balAfter - balMid).to.equal(a3);
       });
@@ -501,28 +501,28 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
         const { user, stake } = await loadFixture(deployStakeFixture);
   
         // Query claimable for a non-existent stake ID
-        const [stakeIds, claimableAmounts] = await stake.read.claimable([
+        const stakeInfos = await stake.read.claimable([
           999n,
           user.account.address
         ]);
   
-        expect(stakeIds.length).to.equal(1);
-        expect(claimableAmounts.length).to.equal(1);
-        expect(stakeIds[0]).to.equal(999n);
-        expect(claimableAmounts[0]).to.equal(0n);
+        expect(stakeInfos.length).to.equal(1);
+        expect(stakeInfos.length).to.equal(1);
+        expect(stakeInfos[0].stakeId).to.equal(999n);
+        expect(stakeInfos[0].claimable).to.equal(0n);
       });
   
       it("handles querying claimable for empty stake set", async function () {
         const { user, stake } = await loadFixture(deployStakeFixture);
   
         // Query claimable for user with no stakes
-        const [stakeIds, claimableAmounts] = await stake.read.claimable([
+        const stakeInfos = await stake.read.claimable([
           0n,
           user.account.address
         ]);
   
-        expect(stakeIds.length).to.equal(0);
-        expect(claimableAmounts.length).to.equal(0);
+        expect(stakeInfos.length).to.equal(0);
+        expect(stakeInfos.length).to.equal(0);
       });
   
       it("handles getStakeIds for user with no stakes", async function () {
@@ -541,15 +541,15 @@ async function verifyClaimableAmount(stake: any, account: `0x${string}`, expecte
         await stakeTokens(stakeAsUser, user.account.address, parseEther("1"), 100);
   
         // Query claimable for all stakes (should include the real one)
-        const [stakeIds, claimableAmounts] = await stake.read.claimable([
+        const stakeInfos = await stake.read.claimable([
           0n,
           user.account.address
         ]);
   
-        expect(stakeIds.length).to.equal(1);
-        expect(claimableAmounts.length).to.equal(1);
-        expect(stakeIds[0]).to.equal(1n); // First stake ID
-        expect(claimableAmounts[0]).to.equal(0n); // No time passed, so 0 claimable
+        expect(stakeInfos.length).to.equal(1);
+        expect(stakeInfos.length).to.equal(1);
+        expect(stakeInfos[0].stakeId).to.equal(1n); // First stake ID
+        expect(stakeInfos[0].claimable).to.equal(0n); // No time passed, so 0 claimable
       });
     });
   });

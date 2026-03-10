@@ -28,9 +28,9 @@ async function getStakeIds(stake: any, account: `0x${string}`): Promise<bigint[]
 }
 
 async function getClaimable(stake: any, account: `0x${string}`, stakeId?: bigint): Promise<{ ids: bigint[]; amounts: bigint[]; total: bigint }> {
-  const [ids, amts] = await stake.read.claimable([stakeId ?? 0n, account]);
-  const total = amts.reduce((acc: bigint, x: bigint) => acc + x, 0n);
-  return { ids, amounts: amts, total };
+  const stakeInfos = await stake.read.claimable([stakeId ?? 0n, account]);
+  const total = stakeInfos.reduce((acc: bigint, x: { claimable: bigint }) => acc + x.claimable, 0n);
+  return { ids: stakeInfos.map((x: { stakeId: bigint }) => x.stakeId), amounts: stakeInfos.map((x: { claimable: bigint }) => x.claimable), total };
 }
 
 async function claimAndDelta(stakeAsUser: any, erc20: any, userAddr: `0x${string}`, stakeId?: bigint): Promise<bigint> {
@@ -161,11 +161,11 @@ describe("TimelockStake", function () {
 
     it("claimable for specific non-existent ID returns [id],[0]", async function () {
       const { user, stake } = await loadFixture(deployStakeFixture);
-      const [ids, amts] = await stake.read.claimable([123n, user.account.address]);
-      expect(ids.length).to.equal(1);
-      expect(amts.length).to.equal(1);
-      expect(ids[0]).to.equal(123n);
-      expect(amts[0]).to.equal(0n);
+      const stakeInfos = await stake.read.claimable([123n, user.account.address]);
+      expect(stakeInfos.length).to.equal(1);
+      expect(stakeInfos.length).to.equal(1);
+      expect(stakeInfos[0].stakeId).to.equal(123n);
+      expect(stakeInfos[0].claimable).to.equal(0n);
     });
 
     it("getStakeIds empty for user with no stakes", async function () {

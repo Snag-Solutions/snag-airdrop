@@ -87,7 +87,7 @@ Users submit an EIP‑712 signed `ClaimOptions` along with a Merkle proof and al
 Some users can accumulate many stakes over time. Both staking contracts expose a paginated claim to keep gas predictable:
 
 - Linear vesting (`LinearStake`)
-  - `claimUnlockedFrom(startAfterId, maxStakes)` claims unlocked (vested) amounts from a batch of stakes.
+  - `claimFrom(startAfterId, maxStakes)` claims unlocked (vested) amounts from a batch of stakes.
   - Use `startAfterId = 0` to start from the first stake; the function returns `lastProcessedId` which you can pass into the next call to continue.
   - Emits `BatchClaimed(user, totalClaimed, lastProcessedId)`.
   - `claimUnlockedIds(ids[])` claims from an explicit list of stake IDs owned by the caller. For large sets, prefer pagination.

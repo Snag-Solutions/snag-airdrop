@@ -10,17 +10,6 @@ import "./IBaseStake.sol";
 interface ILinearStake is IBaseStake {
 
     /**
-     * @notice Claim unlocked tokens from a batch of stakes, starting after a cursor.
-     * @param startAfterId Stake ID cursor. Use 0 to start from the beginning. If non-zero, must be owned by caller.
-     * @param maxStakes Maximum number of stakes to process in this call.
-     * @return totalClaimed Total amount of tokens transferred to the caller in this batch.
-     * @return lastProcessedId The last stake ID processed (use as cursor for next batch).
-     */
-    function claimUnlockedFrom(uint256 startAfterId, uint256 maxStakes)
-        external
-        returns (uint256 totalClaimed, uint256 lastProcessedId);
-
-    /**
      * @notice Claim unlocked tokens from an explicit list of stake IDs.
      * @param ids Array of stake IDs owned by the caller to process.
      * @return totalClaimed Total amount of tokens transferred to the caller.

@@ -34,7 +34,7 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, 
     /// @dev EIP-712 typehash for create payload.
     bytes32 private constant _CREATE_TYPEHASH =
         keccak256(
-            'CreateAirdrop(address factory,address expectedDeployer,uint256 deadline,bytes32 salt,address admin,bytes32 root,address token,address staking,uint256 maxBonus,uint32 minLockup,uint32 minLockupForMultiplier,uint256 multiplier,uint64 feeClaimUsdCents,uint64 feeStakeUsdCents,uint64 feeCapUsdCents,address priceFeed,uint32 maxPriceAge,address protocolTreasury,address protocolOverflow,address partnerOverflow,uint8 overflowMode,uint16 protocolTokenShareBips,uint64 deploymentFeeUsdCents)'
+            'CreateAirdrop(address factory,address expectedDeployer,uint256 deadline,bytes32 salt,address admin,bytes32 root,address token,address staking,uint256 maxBonus,uint32 minLockup,uint32 minLockupForMultiplier,uint256 multiplier,uint64 feeClaimUsdCents,uint64 feeStakeUsdCents,uint64 feeCapUsdCents,address priceFeed,uint32 maxPriceAge,address protocolTreasury,address protocolOverflow,address partnerOverflow,uint8 overflowMode,uint16 protocolTokenShareBips,uint64 deploymentFeeUsdCents,uint16 minPercentageToStake)'
         );
 
     /**
@@ -135,7 +135,8 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, 
                 f.partnerOverflow,
                 uint8(f.overflowMode),
                 f.protocolTokenShareBips,
-                deploymentFeeUsdCents
+                deploymentFeeUsdCents,
+                p.minPercentageToStake
             )
         );
         return _hashTypedDataV4(structHash);
@@ -230,6 +231,7 @@ contract SnagAirdropV2Factory is Context, ISnagAirdropV2Factory, AccessControl, 
         ip.minLockupDuration = p.minLockup;
         ip.minLockupDurationForMultiplier = p.minLockupForMultiplier;
         ip.multiplier = p.multiplier;
+        ip.minPercentageToStake = p.minPercentageToStake;
 
         SnagAirdropV2Claim(claimAddress).initialize(ip, cfg);
     }

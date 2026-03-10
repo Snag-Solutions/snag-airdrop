@@ -40,6 +40,7 @@ contract SnagAirdropV2Claim is
         uint32  minLockupDuration;
         uint32  minLockupDurationForMultiplier;
         uint256 multiplier;
+        uint16  minPercentageToStake;
     }
 
     /// @notice Initialization bundle for fee module + protocol token share.
@@ -66,6 +67,7 @@ contract SnagAirdropV2Claim is
     uint256  public totalClaimed;                            /// Total immediately claimed (sum).
     uint256  public totalStaked;                             /// Total staked (sum).
     uint256  public totalBonusTokens;                        /// Total bonus minted/allocated.
+    uint16   public minPercentageToStake;                    /// Min stake % enforced per claim (bips, 0 = off).
 
 
     /// @notice Contract admin (partner).
@@ -116,6 +118,9 @@ contract SnagAirdropV2Claim is
         if (_initialized) revert AlreadyInitialized();
         if (p.admin == address(0)) revert NotAdmin();
 
+        if (p.minPercentageToStake > 10_000) revert PctSumExceeded();
+        if (p.minPercentageToStake > 0 && p.staking == address(0)) revert NoStaking();
+
         _admin  = p.admin;
         root    = p.root;
         tokenAsset = IERC20(p.asset);
@@ -124,6 +129,7 @@ contract SnagAirdropV2Claim is
         minLockupDurationForMultiplier = p.minLockupDurationForMultiplier;
         multiplier = p.multiplier;
         maxBonus = p.maxBonus;
+        minPercentageToStake = p.minPercentageToStake;
         isActive = true;
         _initialized = true;
 
@@ -144,6 +150,7 @@ contract SnagAirdropV2Claim is
             minLockupDuration,
             minLockupDurationForMultiplier,
             multiplier,
+            minPercentageToStake,
             cfg.priceFeed,
             cfg.maxPriceAge,
             protocolTreasury,
@@ -194,6 +201,7 @@ contract SnagAirdropV2Claim is
         if (pctSum < 10_000) revert PctSumNot100();
         if (o.optionId == bytes32(0)) revert InvalidOptionId();
         if (o.multiplier != multiplier) revert InvalidMultiplier();
+        if (o.percentageToStake < minPercentageToStake) revert StakePercentageTooLow();
         if (o.percentageToStake > 0) {
             if (address(stakingAddress) == address(0)) revert NoStaking();
             if (o.lockupPeriod < minLockupDuration) revert LockupTooShort();
@@ -389,6 +397,7 @@ contract SnagAirdropV2Claim is
         if (pctSum < 10_000) revert PctSumNot100();
         if (o.optionId == bytes32(0)) revert InvalidOptionId();
         if (o.multiplier != multiplier) revert InvalidMultiplier();
+        if (o.percentageToStake < minPercentageToStake) revert StakePercentageTooLow();
         if (o.percentageToStake > 0) {
             if (address(stakingAddress) == address(0)) revert NoStaking();
             if (o.lockupPeriod < minLockupDuration) revert LockupTooShort();

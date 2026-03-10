@@ -19,6 +19,7 @@ type InitParams = {
   minLockupDuration: number;
   minLockupDurationForMultiplier: number;
   multiplier: bigint;
+  minPercentageToStake: number;
 };
 
 type InitFeeConfig = {
@@ -59,6 +60,7 @@ describe("Claim + TimelockStake integration", function () {
       minLockupDuration: 1,
       minLockupDurationForMultiplier: 60,
       multiplier,
+      minPercentageToStake: 0,
     };
     const cfg: InitFeeConfig = {
       priceFeed: feed.address,
@@ -168,7 +170,7 @@ describe("Claim + TimelockStake integration", function () {
     const root = tree.root as `0x${string}`;
 
     const multiplier = 0n;
-    const ip = { admin: partnerAdmin.account.address, root, asset: erc20.address, staking: timelock.address, maxBonus: parseEther("1000"), minLockupDuration: 1, minLockupDurationForMultiplier: 60, multiplier } as const;
+    const ip = { admin: partnerAdmin.account.address, root, asset: erc20.address, staking: timelock.address, maxBonus: parseEther("1000"), minLockupDuration: 1, minLockupDurationForMultiplier: 60, multiplier, minPercentageToStake: 0 } as const;
     const cfg = { priceFeed: feed.address, maxPriceAge: 3600, protocolTreasury: protocolTreasury.account.address, protocolOverflow: protocolOverflow.account.address, partnerOverflow: overflowPartner.account.address, feeClaimUsdCents: 0n, feeStakeUsdCents: 0n, feeCapUsdCents: 10_000n, overflowMode: 0, protocolTokenShareBips: 0 } as const;
     const bytecode = (await hre.artifacts.readArtifact("SnagAirdropV2Claim")).bytecode as `0x${string}`;
     const initCodeHash = keccak256(bytecode);
@@ -277,6 +279,7 @@ describe("Claim + TimelockStake integration", function () {
       minLockupDuration: 1,
       minLockupDurationForMultiplier: 60,
       multiplier,
+      minPercentageToStake: 0,
     };
     const cfg: InitFeeConfig = {
       priceFeed: feed.address,

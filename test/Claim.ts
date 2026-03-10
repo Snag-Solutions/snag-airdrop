@@ -36,6 +36,7 @@ import {
     minLockupDuration: number;
     minLockupDurationForMultiplier: number;
     multiplier: bigint;
+    minPercentageToStake: number;
   };
   
   type InitFeeConfig = {
@@ -138,8 +139,9 @@ import {
       minLockupDuration: 1, // minimal
       minLockupDurationForMultiplier: 60,
       multiplier,
+      minPercentageToStake: 0,
     };
-  
+
     // Fee config: $1 for claim, $2 for stake, cap $10, token share 1%
     const cfg: InitFeeConfig = {
       priceFeed: feed.address,
@@ -382,6 +384,7 @@ import {
         minLockupDuration: 1,
         minLockupDurationForMultiplier: 60,
         multiplier,
+        minPercentageToStake: 0,
       };
       const cfg: InitFeeConfig = {
         priceFeed: feed.address,
@@ -480,6 +483,7 @@ import {
         minLockupDuration: 1,
         minLockupDurationForMultiplier: 60,
         multiplier,
+        minPercentageToStake: 0,
       };
       const cfg: InitFeeConfig = {
         priceFeed: feed.address,
@@ -600,6 +604,7 @@ import {
         minLockupDuration: 10,
         minLockupDurationForMultiplier: 60,
         multiplier: 1000n,
+        minPercentageToStake: 0,
       } satisfies InitParams;
       const cfg = {
         priceFeed: feed.address,
@@ -942,6 +947,7 @@ import {
         minLockupDuration: 1,
         minLockupDurationForMultiplier: 60,
         multiplier: 0n,
+        minPercentageToStake: 0,
       } satisfies InitParams;
       const cfg = {
         priceFeed: feed.address,
